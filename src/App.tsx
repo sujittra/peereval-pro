@@ -4,7 +4,7 @@ import {
   Save, User, Users, Trophy, CheckCircle, Calculator, FileText, Upload, 
   Lock, LogOut, ArrowRight, Key, Check, Layers, Plus, Copy, Settings, 
   Edit2, Trash2, X, Pencil, FileSpreadsheet, Clock, Power, 
-  AlertTriangle, Mail, RefreshCw, Loader2, HelpCircle, Shield
+  AlertTriangle, Mail, RefreshCw, Loader2
 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
@@ -129,14 +129,13 @@ const App: React.FC = () => {
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null); 
   
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot_password'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const [showImport, setShowImport] = useState(false);
   const [showProjectManager, setShowProjectManager] = useState(false);
   const [showCriteriaModal, setShowCriteriaModal] = useState(false); 
-  const [showChangePassword, setShowChangePassword] = useState(false);
   
   const [groupCriteria, setGroupCriteria] = useState<TeacherCriterion[]>([]);
 
@@ -230,10 +229,6 @@ const App: React.FC = () => {
          setShowLoginModal(false);
          setView('teacher');
          fetchData();
-         // Check if this is a password recovery session
-         if (_event === 'PASSWORD_RECOVERY') {
-            setShowChangePassword(true);
-         }
       }
     });
     return () => subscription.unsubscribe();
@@ -278,38 +273,6 @@ const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleForgotPassword = async () => {
-    if (!email) return alert('กรุณากรอก Email เพื่อรับลิงก์รีเซ็ตรหัสผ่าน');
-    setLoading(true);
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.href, // Redirect back to this page
-      });
-      if (error) throw error;
-      alert('ระบบส่งลิงก์รีเซ็ตรหัสผ่านไปที่ Email เรียบร้อยแล้ว กรุณาตรวจสอบ Inbox/Junk Box');
-      setAuthMode('login');
-    } catch (error: any) {
-      alert('Error sending reset mail: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleChangePasswordSubmit = async (newPass: string) => {
-      if (newPass.length < 6) return alert('รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร');
-      setLoading(true);
-      try {
-          const { error } = await supabase.auth.updateUser({ password: newPass });
-          if (error) throw error;
-          alert('เปลี่ยนรหัสผ่านสำเร็จเรียบร้อย');
-          setShowChangePassword(false);
-      } catch (error: any) {
-          alert('Error updating password: ' + error.message);
-      } finally {
-          setLoading(false);
-      }
   };
 
   const handleSignOut = async () => {
@@ -468,28 +431,6 @@ const App: React.FC = () => {
     else { alert('Save failed: ' + error.message); }
   };
 
-  const ChangePasswordModal = ({ onClose }: { onClose: () => void }) => {
-    const [newPass, setNewPass] = useState('');
-    return (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
-                <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3 text-indigo-600">
-                    <Shield size={24} />
-                </div>
-                <h3 className="text-xl font-bold text-center mb-4 text-slate-800">Change Password</h3>
-                <div className="space-y-4">
-                    <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">New Password</label>
-                        <input type="password" value={newPass} onChange={e => setNewPass(e.target.value)} className="w-full p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="New password (min 6 chars)" />
-                    </div>
-                    <button onClick={() => handleChangePasswordSubmit(newPass)} className="w-full py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 flex justify-center items-center gap-2">Update Password</button>
-                    <button onClick={onClose} className="w-full py-2 text-slate-400 hover:text-slate-600 text-sm">Cancel</button>
-                </div>
-            </div>
-        </div>
-    );
-  };
-
   const CriteriaManagerModal = ({ onClose }: { onClose: () => void }) => {
       const [editingCriteria, setEditingCriteria] = useState<TeacherCriterion[]>(allProjectCriteria[teacherProject] || []);
       const handleChange = (id: number, field: keyof TeacherCriterion, value: any, optionIdx: number | null = null) => { 
@@ -533,7 +474,7 @@ const App: React.FC = () => {
       <div className="w-full max-w-md mx-auto py-10 px-4 animate-in fade-in zoom-in-95 duration-300">
         <button onClick={() => setView('landing')} className="mb-6 text-slate-500 flex items-center gap-1 hover:text-slate-800"><ArrowRight className="rotate-180" size={16}/> กลับหน้าหลัก</button>
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
-          <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-6 text-white text-center"><div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 backdrop-blur-sm"><User size={32} /></div><h2 className="text-xl font-bold">เข้าสู่ระบบนักเรียน</h2><p className="text-amber-100 text-sm">Peer Evaluation System</p></div>
+          <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-6 text-white text-center"><div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 backdrop-blur-sm"><User size={32} /></div><h2 className="text-xl font-bold">เข้าสู่ระบบนิสิต</h2><p className="text-amber-100 text-sm">Peer Evaluation System</p></div>
           <div className="p-8 space-y-5">
             <div><label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Layers size={16} className="text-amber-500"/> 1. เลือกโปรเจกต์</label><select className="w-full p-3 border rounded-lg bg-slate-50 outline-none focus:ring-2 focus:ring-amber-400 transition" value={loginProject} onChange={e => { setLoginProject(e.target.value); setLoginGroup(''); setLoginMemberLabel(''); setLoginMemberId(''); }}><option value="">-- เลือกโปรเจกต์ --</option>{projectList.map((p, i) => <option key={i} value={p}>{p}</option>)}</select></div>
             {isClosed && (<div className="bg-red-50 border border-red-200 p-3 rounded-lg flex items-center gap-2 text-red-600 text-sm"><AlertTriangle size={18}/> โปรเจกต์นี้ปิดรับการประเมินแล้ว</div>)}
@@ -592,48 +533,14 @@ const App: React.FC = () => {
       {showLoginModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm text-center animate-in zoom-in-95">
-             <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
-               {authMode === 'forgot_password' ? <HelpCircle size={32} /> : <Lock size={32} />}
+             <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600"><Lock size={32} /></div>
+             <h3 className="text-xl font-bold mb-2">{authMode === 'login' ? 'Teacher Login' : 'Register Teacher'}</h3>
+             <div className="space-y-4 text-left">
+                 <div><label className="text-xs font-bold text-slate-500 uppercase">Email</label><div className="relative"><Mail size={16} className="absolute left-3 top-3 text-slate-400" /><input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full pl-9 p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="name@university.ac.th" /></div></div>
+                 <div><label className="text-xs font-bold text-slate-500 uppercase">Password</label><div className="relative"><Key size={16} className="absolute left-3 top-3 text-slate-400" /><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full pl-9 p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="••••••••" /></div></div>
              </div>
-             <h3 className="text-xl font-bold mb-2">
-               {authMode === 'login' ? 'Teacher Login' : authMode === 'register' ? 'Register Teacher' : 'Reset Password'}
-             </h3>
-             
-             {authMode === 'forgot_password' ? (
-                <div className="space-y-4 text-left">
-                  <p className="text-sm text-slate-500 text-center mb-4">กรอกอีเมลของคุณเพื่อรับลิงก์สำหรับตั้งรหัสผ่านใหม่</p>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">Email</label>
-                    <div className="relative">
-                      <Mail size={16} className="absolute left-3 top-3 text-slate-400" />
-                      <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full pl-9 p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="name@university.ac.th" />
-                    </div>
-                  </div>
-                  <button onClick={handleForgotPassword} disabled={loading} className="w-full mt-6 py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-70 flex justify-center items-center gap-2">
-                    {loading ? <Loader2 className="animate-spin" size={18}/> : 'Send Reset Link'}
-                  </button>
-                  <button onClick={() => setAuthMode('login')} className="w-full mt-2 py-2 text-slate-500 hover:text-slate-800 text-sm">
-                    Back to Login
-                  </button>
-                </div>
-             ) : (
-                <div className="space-y-4 text-left">
-                    <div><label className="text-xs font-bold text-slate-500 uppercase">Email</label><div className="relative"><Mail size={16} className="absolute left-3 top-3 text-slate-400" /><input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full pl-9 p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="name@university.ac.th" /></div></div>
-                    <div><label className="text-xs font-bold text-slate-500 uppercase">Password</label><div className="relative"><Key size={16} className="absolute left-3 top-3 text-slate-400" /><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full pl-9 p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="••••••••" /></div></div>
-                    
-                    {authMode === 'login' && (
-                      <div className="text-right">
-                        <button onClick={() => setAuthMode('forgot_password')} className="text-xs text-indigo-600 hover:underline">
-                          ลืมรหัสผ่าน? (Forgot Password)
-                        </button>
-                      </div>
-                    )}
-
-                    <button onClick={handleAuth} disabled={loading} className="w-full mt-6 py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-70 flex justify-center items-center gap-2">{loading ? <Loader2 className="animate-spin" size={18}/> : (authMode === 'login' ? 'Sign In' : 'Create Account')}</button>
-                    <div className="mt-4 text-xs text-slate-500">{authMode === 'login' ? "Don't have an account? " : "Already have an account? "}<button onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="text-indigo-600 font-bold hover:underline">{authMode === 'login' ? 'Register' : 'Login'}</button></div>
-                </div>
-             )}
-
+             <button onClick={handleAuth} disabled={loading} className="w-full mt-6 py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-70 flex justify-center items-center gap-2">{loading ? <Loader2 className="animate-spin" size={18}/> : (authMode === 'login' ? 'Sign In' : 'Create Account')}</button>
+             <div className="mt-4 text-xs text-slate-500">{authMode === 'login' ? "Don't have an account? " : "Already have an account? "}<button onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="text-indigo-600 font-bold hover:underline">{authMode === 'login' ? 'Register' : 'Login'}</button></div>
              <button onClick={() => setShowLoginModal(false)} className="mt-4 text-xs text-slate-400 hover:text-slate-600">Cancel</button>
           </div>
         </div>
@@ -642,13 +549,12 @@ const App: React.FC = () => {
       {showImport && <ImportModal onClose={() => setShowImport(false)} />}
       {showProjectManager && <ProjectManagerModal onClose={() => setShowProjectManager(false)} />}
       {showCriteriaModal && <CriteriaManagerModal onClose={() => setShowCriteriaModal(false)} />}
-      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
 
       {view === 'landing' && (
         <div className="w-full flex flex-col items-center justify-center flex-grow py-12 px-4 space-y-8">
-          <div className="text-center space-y-2"><h1 className="text-4xl sm:text-5xl font-extrabold text-slate-800 tracking-tight">PeerEval Pro</h1><p className="text-slate-500 text-lg">เลือกโหมดการใช้งานของคุณเพื่อเริ่มต้น</p></div>
+          <div className="text-center space-y-2"><h1 className="text-4xl sm:text-5xl font-extrabold text-slate-800 tracking-tight">ระบบประเมิน Project รายวิชา AI สาขา SE (V.Demo)</h1><p className="text-slate-500 text-lg">กรุณาเลือกบทบาทผู้ประเมิน คุณคือใคร?</p></div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
-            <button onClick={() => setView('student-login')} className="group bg-white p-8 rounded-2xl shadow-sm hover:shadow-xl border-2 border-transparent hover:border-amber-400 text-left transition-all"><div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mb-4 text-amber-600 group-hover:scale-110 transition"><User size={24} /></div><h2 className="text-2xl font-bold text-slate-800 mb-2">สำหรับนักเรียน</h2><p className="text-slate-500 text-sm">เข้าสู่ระบบเพื่อประเมินเพื่อนร่วมทีม (Peer Evaluation)</p></button>
+            <button onClick={() => setView('student-login')} className="group bg-white p-8 rounded-2xl shadow-sm hover:shadow-xl border-2 border-transparent hover:border-amber-400 text-left transition-all"><div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mb-4 text-amber-600 group-hover:scale-110 transition"><User size={24} /></div><h2 className="text-2xl font-bold text-slate-800 mb-2">สำหรับนิสิต</h2><p className="text-slate-500 text-sm">เข้าสู่ระบบเพื่อประเมินเพื่อนร่วมทีม (Peer Evaluation)</p></button>
             <button onClick={() => setShowLoginModal(true)} className="group bg-white p-8 rounded-2xl shadow-sm hover:shadow-xl border-2 border-transparent hover:border-indigo-500 text-left transition-all"><div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mb-4 text-indigo-600 group-hover:scale-110 transition"><Lock size={24} /></div><h2 className="text-2xl font-bold text-slate-800 mb-2">สำหรับอาจารย์</h2><p className="text-slate-500 text-sm">ประเมินโครงงาน จัดการกลุ่ม และสรุปคะแนนรวมทั้งหมด</p></button>
           </div>
         </div>
@@ -663,7 +569,7 @@ const App: React.FC = () => {
            <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-indigo-600 flex flex-col xl:flex-row justify-between items-center gap-4">
              <div><h1 className="text-xl font-bold text-slate-800">Teacher Dashboard</h1><p className="text-xs text-slate-500">Manage scores for multiple projects</p></div>
              <div className="flex flex-wrap items-center justify-center gap-3"><div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200"><span className="text-xs font-bold text-slate-500 uppercase px-2">Project:</span><select value={teacherProject} onChange={(e) => { setTeacherProject(e.target.value); setCurrentGroup(null); }} className="bg-white border border-slate-300 text-slate-700 text-sm rounded-md p-2 outline-none font-semibold cursor-pointer">{projectList.map((p, i) => <option key={i} value={p}>{p}</option>)}</select><button onClick={() => setShowProjectManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"><Settings size={18} /></button></div><button onClick={toggleProjectStatus} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold border transition-all ${projectStatus[teacherProject] ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}><Power size={16}/> {projectStatus[teacherProject] ? 'เปิดรับ (Open)' : 'ปิดรับ (Closed)'}</button></div>
-             <div className="flex flex-wrap items-center justify-center gap-3"><button onClick={() => setShowChangePassword(true)} className="flex items-center gap-1 text-sm bg-yellow-50 text-yellow-700 px-3 py-2 rounded hover:bg-yellow-100 transition"><Key size={16}/> เปลี่ยนรหัส</button><button onClick={() => setShowImport(true)} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-2 rounded hover:bg-blue-100 transition"><Upload size={16}/> นำเข้ากลุ่ม</button><button onClick={handleExportExcel} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-2 rounded hover:bg-green-100 transition"><FileSpreadsheet size={16}/> Export Excel</button><button onClick={handleSignOut} className="flex items-center gap-1 text-sm bg-red-50 text-red-700 px-3 py-2 rounded hover:bg-red-100 transition"><LogOut size={16}/> ออกจากระบบ</button></div>
+             <div className="flex flex-wrap items-center justify-center gap-3"><button onClick={() => setShowImport(true)} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-2 rounded hover:bg-blue-100 transition"><Upload size={16}/> นำเข้ากลุ่ม</button><button onClick={handleExportExcel} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-2 rounded hover:bg-green-100 transition"><FileSpreadsheet size={16}/> Export Excel</button><button onClick={handleSignOut} className="flex items-center gap-1 text-sm bg-red-50 text-red-700 px-3 py-2 rounded hover:bg-red-100 transition"><LogOut size={16}/> ออกจากระบบ</button></div>
            </div>
            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
              <div className="lg:col-span-8 space-y-6">
