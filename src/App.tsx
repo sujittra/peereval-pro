@@ -1658,6 +1658,16 @@ const App: React.FC = () => {
                </div>
              </div>
              <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-6">
+                {/* อยู่บนสุดให้เห็นคู่กับเกณฑ์ที่กำลังให้คะแนนอยู่ทางซ้าย */}
+                <div className="bg-slate-800 text-white p-6 rounded-xl shadow-lg">
+                   <h3 className="font-bold flex items-center gap-2 mb-6 text-slate-300 uppercase tracking-wider text-sm"><Calculator size={16}/> สรุปคะแนน ({teacherProject})</h3>
+                   <div className="space-y-4 text-sm mb-6">
+                     <div className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg"><span className="text-slate-300">คะแนนกลุ่ม ({weightsOf(teacherProject).teacher}%)</span><span className="font-mono text-xl font-bold">{calculateScores().weightedGroupScore.toFixed(2)}</span></div>
+                     <div className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg"><div className="flex flex-col"><span className="text-slate-300">คะแนน Peer ({weightsOf(teacherProject).peer}%)</span><span className="text-[10px] text-slate-400">จากเพื่อน {calculateScores().groupEvalsCount} คน</span></div><span className="font-mono text-xl font-bold">{calculateScores().weightedIndivScore.toFixed(2)}</span></div>
+                     <div className="pt-4 border-t border-slate-600 flex justify-between items-end"><span className="text-indigo-400 font-bold text-lg">Total Score</span><span className="text-4xl font-bold tracking-tight">{(calculateScores().weightedGroupScore + calculateScores().weightedIndivScore).toFixed(2)}</span></div>
+                   </div>
+                   <button disabled={!currentGroup} onClick={saveFinalRecord} className="w-full bg-indigo-500 hover:bg-indigo-400 text-white py-3 rounded-lg font-bold shadow-lg disabled:opacity-50 transition transform active:scale-95 flex justify-center items-center gap-2"><Save size={18}/> บันทึกคะแนนกลุ่มนี้</button>
+                </div>
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
                    <h3 className="font-bold text-slate-700 flex items-center gap-2"><Trophy size={18} className="text-amber-500"/> Popular Vote ({teacherProject})</h3>
                    <p className="text-xs text-slate-500 mb-4 mt-1">{projectVoteOpen[teacherProject] ? 'กำลังเปิดโหวต — นิสิตยังไม่เห็นผล คุณเห็นสด' : 'ปิดโหวตอยู่ — นิสิตในโปรเจกต์นี้เห็นผลแล้ว'}</p>
@@ -1668,15 +1678,6 @@ const App: React.FC = () => {
                        {renderVoteBallot(teacherProject, null)}
                      </div>
                    )}
-                </div>
-                <div className="bg-slate-800 text-white p-6 rounded-xl shadow-lg">
-                   <h3 className="font-bold flex items-center gap-2 mb-6 text-slate-300 uppercase tracking-wider text-sm"><Calculator size={16}/> สรุปคะแนน ({teacherProject})</h3>
-                   <div className="space-y-4 text-sm mb-6">
-                     <div className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg"><span className="text-slate-300">คะแนนกลุ่ม ({weightsOf(teacherProject).teacher}%)</span><span className="font-mono text-xl font-bold">{calculateScores().weightedGroupScore.toFixed(2)}</span></div>
-                     <div className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg"><div className="flex flex-col"><span className="text-slate-300">คะแนน Peer ({weightsOf(teacherProject).peer}%)</span><span className="text-[10px] text-slate-400">จากเพื่อน {calculateScores().groupEvalsCount} คน</span></div><span className="font-mono text-xl font-bold">{calculateScores().weightedIndivScore.toFixed(2)}</span></div>
-                     <div className="pt-4 border-t border-slate-600 flex justify-between items-end"><span className="text-indigo-400 font-bold text-lg">Total Score</span><span className="text-4xl font-bold tracking-tight">{(calculateScores().weightedGroupScore + calculateScores().weightedIndivScore).toFixed(2)}</span></div>
-                   </div>
-                   <button disabled={!currentGroup} onClick={saveFinalRecord} className="w-full bg-indigo-500 hover:bg-indigo-400 text-white py-3 rounded-lg font-bold shadow-lg disabled:opacity-50 transition transform active:scale-95 flex justify-center items-center gap-2"><Save size={18}/> บันทึกคะแนนกลุ่มนี้</button>
                 </div>
                 <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 max-h-[500px] overflow-hidden flex flex-col">
                   <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2 pb-2 border-b"><Trophy size={18} className="text-yellow-500"/> ประเมินแล้ว ({records.filter(r => r.project === teacherProject).length})</h3>
