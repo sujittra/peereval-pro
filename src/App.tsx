@@ -687,6 +687,7 @@ const App: React.FC = () => {
   const fetchDataRef = useRef(fetchData);
   fetchDataRef.current = fetchData;
   const refreshTimer = useRef<number | null>(null);
+  const voteCardRef = useRef<HTMLDivElement | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
 
   // นิสิตหลายคนกดส่งพร้อมกันได้ รวบ event ที่ถี่ๆ ให้ยิง fetchData ครั้งเดียว
@@ -1060,6 +1061,25 @@ const App: React.FC = () => {
     setStudentSession(null); setStudentIdInput(''); setStudentPasswordInput(''); setView('landing');
   };
 
+  // ยังต้องโหวตอยู่ไหม — เช็กว่ามีกลุ่มให้โหวตจริงด้วย ไม่งั้นนิสิตที่อยู่โปรเจกต์
+  // ซึ่งมีกลุ่มเดียว (โหวตกลุ่มตัวเองไม่ได้) จะออกจากระบบไม่ได้เลย
+  const needsVote = (project: string, ownGroup: string) =>
+    !!projectVoteOpen[project]
+    && !myVote[project]
+    && votableGroups.some(g => g.project === project && g.name !== ownGroup);
+
+  // ใช้กับปุ่มออกจากระบบในหน้า dashboard เท่านั้น
+  // ปุ่มในโมดัลบังคับเปลี่ยนรหัสยังเรียก handleStudentLogout ตรงๆ ไม่งั้นนิสิต
+  // ที่ยังไม่ได้ตั้งรหัสใหม่จะติดอยู่ในโมดัลโดยออกไม่ได้
+  const requestStudentLogout = async () => {
+    if (studentSession && needsVote(studentSession.project, studentSession.groupName)) {
+      alert('กรุณาโหวต Popular Vote ก่อนออกจากระบบ\n\nเลือกโครงงานที่คุณชอบที่สุด 1 กลุ่ม (เปลี่ยนใจได้ภายหลัง)');
+      voteCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    await handleStudentLogout();
+  };
+
   // ใช้ได้ทั้งนิสิตและอาจารย์ เปลี่ยนรหัสของตัวเองเท่านั้น
   const handleChangeOwnPassword = async (newPass: string, confirmPass: string) => {
     if (newPass.length < 6) return alert('รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร');
@@ -1418,18 +1438,33 @@ const App: React.FC = () => {
 
     return (
       <div className="w-full max-w-4xl mx-auto py-6 px-4">
-        <div className="flex justify-between items-center mb-6"><div><h1 className="text-xl font-bold text-slate-800">Dashboard</h1><span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">{studentSession.project}</span></div><div className="flex items-center gap-2"><button onClick={() => setShowChangePassword(true)} className="text-sm text-slate-600 font-medium hover:bg-slate-100 px-3 py-1 rounded-full border border-slate-200 transition flex items-center gap-1"><Key size={14}/> เปลี่ยนรหัสผ่าน</button><button onClick={handleStudentLogout} className="text-sm text-red-600 font-medium hover:bg-red-50 px-3 py-1 rounded-full border border-transparent hover:border-red-100 transition">ออกจากระบบ</button></div></div>
+        <div className="flex justify-between items-center mb-6"><div><h1 className="text-xl font-bold text-slate-800">Dashboard</h1><span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">{studentSession.project}</span></div><div className="flex items-center gap-2"><button onClick={() => setShowChangePassword(true)} className="text-sm text-slate-600 font-medium hover:bg-slate-100 px-3 py-1 rounded-full border border-slate-200 transition flex items-center gap-1"><Key size={14}/> เปลี่ยนรหัสผ่าน</button><button onClick={requestStudentLogout} className="text-sm text-red-600 font-medium hover:bg-red-50 px-3 py-1 rounded-full border border-transparent hover:border-red-100 transition">ออกจากระบบ</button></div></div>
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6 flex flex-col sm:flex-row items-center justify-between gap-4"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 font-bold text-xl">{studentSession.memberLabel.charAt(0)}</div><div><p className="text-slate-500 text-xs uppercase tracking-wider">Welcome,</p><h2 className="text-lg font-bold text-slate-800">{studentSession.memberLabel}</h2><span className="text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-500">{studentSession.groupName}</span></div></div><div className="text-center sm:text-right"><p className="text-slate-400 text-xs">Progress</p><p className={`text-2xl font-bold ${isAllDone ? 'text-green-600' : 'text-slate-800'}`}>{evaluatedCount}/{totalPeers}</p></div></div>
         {studentSuccessMsg && (<div className="bg-green-100 border border-green-200 text-green-800 p-3 rounded-xl mb-6 flex items-center gap-2 text-sm font-medium animate-in slide-in-from-top-2"><CheckCircle size={18} className="text-green-600" /> {studentSuccessMsg}</div>)}
         {!projectStatus[studentSession.project] && (<div className="bg-red-50 border border-red-200 p-3 rounded-xl mb-6 flex items-center gap-2 text-red-600 text-sm font-medium"><AlertTriangle size={18}/> โปรเจกต์นี้ปิดรับการประเมินแล้ว</div>)}
         <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider ml-1">เพื่อนในทีมที่ต้องประเมิน</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{peers.length === 0 ? (<div className="col-span-2 p-8 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">ไม่มีสมาชิกอื่นในกลุ่ม</div>) : (peers.map((peer, idx) => { const isDone = getStatus(peer.label); return (<button key={idx} disabled={isDone} onClick={() => startVote(peer.label)} className={`w-full p-4 rounded-xl border flex justify-between items-center transition-all text-left group ${isDone ? 'bg-slate-50 border-slate-200 opacity-60 cursor-default' : 'bg-white border-slate-200 hover:border-amber-400 hover:shadow-md cursor-pointer'}`}><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${isDone ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{isDone ? <Check size={16}/> : peer.label.charAt(0)}</div><span className={`font-medium ${isDone ? 'text-slate-500 line-through' : 'text-slate-800'}`}>{peer.label}</span></div><div>{isDone ? (<span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">เรียบร้อย</span>) : (<span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded group-hover:bg-amber-500 group-hover:text-white transition">ให้คะแนน</span>)}</div></button>); }))}</div>
-        {isAllDone && (<div className="mt-8 bg-green-50 border border-green-200 rounded-xl p-6 text-center animate-in zoom-in-95"><div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3"><Trophy size={32} /></div><h3 className="text-lg font-bold text-green-800">ประเมินครบทุกคนแล้ว!</h3><button onClick={handleStudentLogout} className="bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700 transition">ออกจากระบบ</button></div>)}
+        {isAllDone && (() => {
+          const pending = needsVote(studentSession.project, studentSession.groupName);
+          return (
+            <div className={`mt-8 border rounded-xl p-6 text-center animate-in zoom-in-95 ${pending ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 ${pending ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}><Trophy size={32} /></div>
+              <h3 className={`text-lg font-bold ${pending ? 'text-amber-800' : 'text-green-800'}`}>ประเมินครบทุกคนแล้ว!</h3>
+              {pending ? (<>
+                <p className="text-sm text-amber-700 mb-3">เหลืออีกขั้นเดียว — โหวต Popular Vote ก่อนออกจากระบบ</p>
+                <button onClick={() => voteCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                  className="bg-amber-500 text-white px-6 py-2 rounded-lg font-bold hover:bg-amber-600 transition">ไปโหวต</button>
+              </>) : (
+                <button onClick={requestStudentLogout} className="mt-2 bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700 transition">ออกจากระบบ</button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* อยู่ท้ายสุด เพราะการประเมินเพื่อนเป็นงานหลักที่นิสิตต้องทำให้ครบ */}
         {/* แสดงเมื่อกำลังเปิดโหวต หรือปิดโหวตแล้วและ RLS ปล่อยผลออกมาให้เห็น */}
         {(projectVoteOpen[studentSession.project] || hasVoteResults(studentSession.project)) && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mt-6">
+          <div ref={voteCardRef} className={`bg-white rounded-2xl shadow-sm p-6 mt-6 border ${needsVote(studentSession.project, studentSession.groupName) ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-200'}`}>
             <h3 className="font-bold text-slate-700 flex items-center gap-2"><Trophy size={18} className="text-amber-500"/> Popular Vote</h3>
             {projectVoteOpen[studentSession.project] ? (<>
               <p className="text-xs text-slate-500 mb-4 mt-1">โหวตโครงงานที่คุณชอบที่สุด โหวตกลุ่มตัวเองไม่ได้ ผลจะเปิดเผยเมื่ออาจารย์ปิดโหวต</p>

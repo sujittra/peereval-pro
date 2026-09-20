@@ -92,6 +92,9 @@ grant execute on function public.is_own_group(text, text) to authenticated;
 -- =========================================================
 --  ส่วนที่ 4: RLS ของ popular_votes
 -- =========================================================
+--  !! policy insert/update ในส่วนนี้ถูกแทนที่แล้วโดย fix-group-lookup-rls.sql !!
+--  ท่อนที่เช็กว่ากลุ่มมีอยู่จริง query ตาราง groups ตรงๆ ซึ่งนิสิตอ่านไม่ได้
+--  ทำให้โหวตไม่ผ่าน ต้องรัน fix-group-lookup-rls.sql ต่อท้ายเสมอ
 
 drop policy if exists popular_votes_select on public.popular_votes;
 drop policy if exists popular_votes_insert on public.popular_votes;
