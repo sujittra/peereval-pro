@@ -88,6 +88,8 @@ interface TeacherRecord {
   weightedIndivScore: number;
   totalScore: number;
   groupEvalsCount: number;
+  // คะแนนรายเกณฑ์ของอาจารย์ เริ่มเก็บทีหลัง ระเบียนเก่าจึงไม่มี
+  criteriaScores?: { id: number; name: string; score: number }[];
 }
 
 interface ProjectStatus {
@@ -800,7 +802,15 @@ const App: React.FC = () => {
       const XLSX = await loadXLSX();
       // คิดถ่วงน้ำหนักใหม่จากคะแนนดิบด้วยน้ำหนักและคะแนนเต็มปัจจุบัน
       // ไม่ใช้ค่าที่บันทึกไว้ตอนกดบันทึก ให้ตรงกับวิธีคิดในชีต Summary
-      const teacherData = records.map(r => {
+      // ส่งออกเฉพาะโปรเจกต์ที่เลือกอยู่
+      const proj = teacherProject;
+      const projectRecords = records.filter(r => r.project === proj);
+      const projectEvals = peerEvaluations.filter(e => e.project === proj);
+      const projectGroups = importedGroups.filter(g => g.project === proj);
+      const teacherCriteria = allProjectCriteria[proj] ?? [];
+      const peerCriteria = studentCriteriaOf(proj);
+
+      const teacherData = projectRecords.map(r => {
         const w = weightsOf(r.project);
         const tMax = teacherMaxOf(r.project);
         const pMax = peerMaxOf(r.project);
@@ -818,14 +828,14 @@ const App: React.FC = () => {
           "Evaluation Time": new Date(r.id).toLocaleString('th-TH'),
         };
       });
-      const studentData = peerEvaluations.map(p => {
+      const studentData = projectEvals.map(p => {
         const scoreDetails: Record<string, number> = {};
         p.scores.forEach((s) => { scoreDetails[`${s.name}`] = s.score; });
         // คะแนนเต็มไม่คงที่อีกแล้ว (อาจารย์แก้เกณฑ์ได้) จึงใส่เป็นคอลัมน์แทนการฝังไว้ในหัวคอลัมน์
         return { "Project": p.project, "Group Name": p.groupName, "Evaluator": p.evaluator, "Target": p.target, "Total Score (Raw)": p.totalRaw, "คะแนนเต็ม": peerMaxOf(p.project), ...scoreDetails, "Evaluation Time": new Date(p.timestamp).toLocaleString('th-TH') };
       });
       const summaryData: any[] = [];
-      const sortedGroups = [...importedGroups].sort((a, b) => a.project.localeCompare(b.project) || a.name.localeCompare(b.name));
+      const sortedGroups = [...projectGroups].sort((a, b) => a.name.localeCompare(b.name));
       sortedGroups.forEach(group => {
           const teacherRecord = records.find(r => r.project === group.project && r.groupName === group.name);
           const w = weightsOf(group.project);
@@ -844,6 +854,25 @@ const App: React.FC = () => {
               // จำนวนเพื่อนที่คนนี้ต้องประเมิน และประเมินไปแล้วกี่คน
               const required = Math.max(group.membersArray.length - 1, 0);
               const submitted = peerEvaluations.filter(e => e.project === group.project && e.groupName === group.name && e.evaluator === member.label).length;
+
+              // แจกแจงคะแนนรายเกณฑ์ของนิสิตคนนี้
+              // ฝั่งอาจารย์เป็นคะแนนระดับกลุ่ม สมาชิกทุกคนในกลุ่มจึงได้เท่ากัน
+              // ระเบียนที่บันทึกก่อนเริ่มเก็บ criteriaScores จะขึ้น '-'
+              const detail: Record<string, number | string> = {};
+              teacherCriteria.forEach(c => {
+                const hit = teacherRecord?.criteriaScores?.find(x => x.name === c.name);
+                detail[`[อาจารย์] ${c.name}`] = hit ? hit.score : '-';
+              });
+              // ฝั่งเพื่อนเป็นค่าเฉลี่ยของคะแนนที่คนนี้ได้รับในแต่ละข้อ
+              peerCriteria.forEach(c => {
+                const vals = memberEvaluations
+                  .map(e => (e.scores ?? []).find(s => s.name === c.name)?.score)
+                  .filter((v): v is number => typeof v === 'number');
+                detail[`[เพื่อน] ${c.name}`] = vals.length > 0
+                  ? parseFloat((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2))
+                  : '-';
+              });
+
               summaryData.push({
                 "รหัส": member.id || '-', "ชื่อ-นามสกุล": member.name || member.label,
                 "SEC": member.section || '-', "สาขา": member.major || '-',
@@ -857,12 +886,13 @@ const App: React.FC = () => {
                 "สถานะการประเมิน": required === 0 ? 'ไม่มีเพื่อนให้ประเมิน' : (submitted >= required ? 'ครบ' : 'ยังไม่ครบ'),
                 "Popular Vote (เสียง)": groupVote?.votes ?? 0,
                 "อันดับ Popular Vote": groupVote ? groupVote.rank : '-',
+                ...detail,
               });
           });
       });
 
       // สถานะเปิด/ปิดของแต่ละโปรเจกต์ ณ เวลาที่ export
-      const projectData = projectList.map(p => ({
+      const projectData = [proj].map(p => ({
         "ชื่อ Project": p,
         "รับการประเมินเพื่อน": projectStatus[p] ? 'เปิด' : 'ปิด',
         "Popular Vote": projectVoteOpen[p] ? 'เปิด' : 'ปิด',
@@ -875,7 +905,7 @@ const App: React.FC = () => {
 
       // ผลโหวตทุกโปรเจกต์ รวมกลุ่มที่ยังไม่มีใครโหวต
       const voteData: any[] = [];
-      projectList.forEach(p => {
+      [proj].forEach(p => {
         rankedVotes(p).forEach(r => {
           voteData.push({
             "ชื่อ Project": p, "ชื่อ กลุ่ม": r.group,
@@ -887,7 +917,7 @@ const App: React.FC = () => {
 
       // ใครประเมินครบ ใครยังไม่ครบ แยกชีตเพื่อให้ filter ใน Excel ได้ง่าย
       const statusData: any[] = [];
-      projectList.forEach(p => {
+      [proj].forEach(p => {
         evaluationProgress(p).forEach(g => {
           const groupObj = importedGroups.find(x => x.project === p && x.name === g.group);
           g.members.forEach(m => {
@@ -905,7 +935,7 @@ const App: React.FC = () => {
 
       // เกณฑ์แก้ไขได้แล้ว รายงานจึงต้องบันทึกไว้ด้วยว่ารอบนี้ใช้เกณฑ์อะไร
       const criteriaData: any[] = [];
-      projectList.forEach(p => {
+      [proj].forEach(p => {
         (allProjectCriteria[p] ?? []).forEach((c, i) => criteriaData.push({
           "ชื่อ Project": p, "ชุดเกณฑ์": "อาจารย์ประเมินกลุ่ม", "ลำดับ": i + 1,
           "หัวข้อ": c.name, "คะแนนเต็ม": 5,
@@ -928,7 +958,9 @@ const App: React.FC = () => {
       addSheet(voteData, "Popular_Vote", "No vote data");
       addSheet(criteriaData, "Criteria", "No criteria data");
       addSheet(projectData, "Projects", "No project data");
-      XLSX.writeFile(wb, `Evaluation_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
+      // ใส่ชื่อโปรเจกต์ในไฟล์ เพราะ export ทีละโปรเจกต์แล้ว ไม่งั้นไฟล์หลายรอบจะแยกไม่ออก
+      const safeName = proj.replace(/[\\/:*?"<>|]/g, '_').trim();
+      XLSX.writeFile(wb, `Evaluation_${safeName}_${new Date().toISOString().slice(0,10)}.xlsx`);
     } catch (error) { console.error("Export failed:", error); alert("ไม่สามารถโหลดไลบรารี Excel ได้"); }
   };
 
@@ -1223,7 +1255,10 @@ const App: React.FC = () => {
     if (!currentGroup) return alert('กรุณาเลือกกลุ่ม');
     const scores = calculateScores();
     const totalScore = scores.weightedGroupScore + scores.weightedIndivScore;
-    const payload = { project_name: teacherProject, group_name: currentGroup.name, data: scores, total_score: totalScore };
+    // เก็บคะแนนรายเกณฑ์ไว้ด้วย เพื่อให้รายงานแจกแจงได้ว่าแต่ละข้อได้เท่าไร
+    // data เป็น jsonb อยู่แล้ว จึงเพิ่มฟิลด์ได้โดยไม่ต้องแก้ schema
+    const criteriaScores = groupCriteria.map(c => ({ id: c.id, name: c.name, score: c.score ?? 0 }));
+    const payload = { project_name: teacherProject, group_name: currentGroup.name, data: { ...scores, criteriaScores }, total_score: totalScore };
     await supabase.from('teacher_evals').delete().match({ project_name: teacherProject, group_name: currentGroup.name });
     const { error } = await supabase.from('teacher_evals').insert(payload);
     if (!error) { fetchData(); alert(`บันทึกผลการประเมินกลุ่ม ${currentGroup.name} เรียบร้อย`); setGroupCriteria(groupCriteria.map(c => ({...c, score: 0}))); setCurrentGroup(null); }
@@ -1570,7 +1605,7 @@ const App: React.FC = () => {
            <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-indigo-600 flex flex-col xl:flex-row justify-between items-center gap-4">
              <div><h1 className="text-xl font-bold text-slate-800">Teacher Dashboard</h1><p className="text-xs text-slate-500 flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${liveConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}/>{liveConnected ? 'อัปเดตสดเมื่อนิสิตส่งคะแนนหรือโหวต' : 'ไม่ได้เชื่อมต่อแบบเรียลไทม์'}</p></div>
              <div className="flex flex-wrap items-center justify-center gap-3"><div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200"><span className="text-xs font-bold text-slate-500 uppercase px-2">Project:</span><select value={teacherProject} onChange={(e) => { setTeacherProject(e.target.value); setCurrentGroup(null); }} className="bg-white border border-slate-300 text-slate-700 text-sm rounded-md p-2 outline-none font-semibold cursor-pointer">{projectList.map((p, i) => <option key={i} value={p}>{p}</option>)}</select><button onClick={() => setShowProjectManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"><Settings size={18} /></button></div><button onClick={toggleProjectStatus} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold border transition-all ${projectStatus[teacherProject] ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}><Power size={16}/> {projectStatus[teacherProject] ? 'เปิดรับ (Open)' : 'ปิดรับ (Closed)'}</button><button onClick={toggleVoteOpen} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold border transition-all ${projectVoteOpen[teacherProject] ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}><Trophy size={16}/> {projectVoteOpen[teacherProject] ? 'โหวตเปิด' : 'โหวตปิด'}</button></div>
-             <div className="flex flex-wrap items-center justify-center gap-3"><button onClick={() => setShowImport(true)} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-2 rounded hover:bg-blue-100 transition"><Upload size={16}/> นำเข้ากลุ่ม</button><button onClick={() => setShowStudentCriteria(true)} className="flex items-center gap-1 text-sm bg-amber-50 text-amber-700 px-3 py-2 rounded hover:bg-amber-100 transition"><Pencil size={16}/> เกณฑ์ประเมินเพื่อน</button><button onClick={() => setShowWeights(true)} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-3 py-2 rounded hover:bg-indigo-100 transition"><Calculator size={16}/> สัดส่วนคะแนน ({weightsOf(teacherProject).teacher}/{weightsOf(teacherProject).peer})</button><button onClick={handleProvisionStudents} className="flex items-center gap-1 text-sm bg-amber-50 text-amber-700 px-3 py-2 rounded hover:bg-amber-100 transition"><Users size={16}/> สร้างบัญชีนิสิต</button><button onClick={handleResetStudentPassword} className="flex items-center gap-1 text-sm bg-slate-100 text-slate-700 px-3 py-2 rounded hover:bg-slate-200 transition"><Key size={16}/> รีเซ็ตรหัสนิสิต</button><button onClick={handleExportExcel} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-2 rounded hover:bg-green-100 transition"><FileSpreadsheet size={16}/> Export Excel</button><button onClick={handleSignOut} className="flex items-center gap-1 text-sm bg-red-50 text-red-700 px-3 py-2 rounded hover:bg-red-100 transition"><LogOut size={16}/> ออกจากระบบ</button></div>
+             <div className="flex flex-wrap items-center justify-center gap-3"><button onClick={() => setShowImport(true)} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-2 rounded hover:bg-blue-100 transition"><Upload size={16}/> นำเข้ากลุ่ม</button><button onClick={() => setShowStudentCriteria(true)} className="flex items-center gap-1 text-sm bg-amber-50 text-amber-700 px-3 py-2 rounded hover:bg-amber-100 transition"><Pencil size={16}/> เกณฑ์ประเมินเพื่อน</button><button onClick={() => setShowWeights(true)} className="flex items-center gap-1 text-sm bg-indigo-50 text-indigo-700 px-3 py-2 rounded hover:bg-indigo-100 transition"><Calculator size={16}/> สัดส่วนคะแนน ({weightsOf(teacherProject).teacher}/{weightsOf(teacherProject).peer})</button><button onClick={handleProvisionStudents} className="flex items-center gap-1 text-sm bg-amber-50 text-amber-700 px-3 py-2 rounded hover:bg-amber-100 transition"><Users size={16}/> สร้างบัญชีนิสิต</button><button onClick={handleResetStudentPassword} className="flex items-center gap-1 text-sm bg-slate-100 text-slate-700 px-3 py-2 rounded hover:bg-slate-200 transition"><Key size={16}/> รีเซ็ตรหัสนิสิต</button><button onClick={handleExportExcel} title={`ส่งออกเฉพาะโปรเจกต์ ${teacherProject}`} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-2 rounded hover:bg-green-100 transition"><FileSpreadsheet size={16}/> Export Excel</button><button onClick={handleSignOut} className="flex items-center gap-1 text-sm bg-red-50 text-red-700 px-3 py-2 rounded hover:bg-red-100 transition"><LogOut size={16}/> ออกจากระบบ</button></div>
            </div>
            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
              <div className="lg:col-span-8 space-y-6">
