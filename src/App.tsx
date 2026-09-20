@@ -1084,7 +1084,12 @@ const App: React.FC = () => {
     if (error) {
       // invoke คืนข้อความกลางๆ เมื่อ status ไม่ใช่ 2xx ต้องอ่าน body เองถึงจะได้เหตุผลจริง
       const detail = await (error as any).context?.json?.().catch(() => null);
-      throw new Error(detail?.error ?? error.message);
+      const msg = detail?.error ?? error.message;
+      // fetch ล้มตั้งแต่ต้น = ไม่มีฟังก์ชันให้เรียก (CORS preflight ไม่มีใครตอบ)
+      if (/Failed to send a request/i.test(msg)) {
+        throw new Error('ยังไม่ได้ deploy Edge Function "student-admin"\n\nDashboard > Edge Functions > Deploy a new function แล้ววางโค้ดจาก supabase/functions/student-admin/index.ts\nหรือรัน: npx supabase functions deploy student-admin');
+      }
+      throw new Error(msg);
     }
     return data;
   };
@@ -1095,7 +1100,17 @@ const App: React.FC = () => {
     setLoading(true);
     try {
       const r = await callStudentAdmin({ action: 'provision', project_name: teacherProject });
-      const lines = [`สร้างบัญชีใหม่ ${r.created.length} คน`, `มีบัญชีอยู่แล้ว ${r.existed.length} คน`];
+      // ฟังก์ชันตอบ 200 แต่รูปแบบไม่ตรง = โค้ดที่ deploy ไม่ใช่ของเรา (มักเป็นเทมเพลตตัวอย่าง)
+      if (!r || !Array.isArray(r.created)) {
+        setLoading(false);
+        return alert(
+          'Edge Function ตอบกลับมาในรูปแบบที่ไม่รู้จัก\n\n' +
+          'น่าจะยังเป็นโค้ดตัวอย่างของ Supabase อยู่ ไม่ใช่โค้ดจาก supabase/functions/student-admin/index.ts\n' +
+          'ลองวางโค้ดจากไฟล์นั้นทับแล้ว Deploy ใหม่\n\n' +
+          'คำตอบที่ได้รับ: ' + JSON.stringify(r),
+        );
+      }
+      const lines = [`สร้างบัญชีใหม่ ${r.created.length} คน`, `มีบัญชีอยู่แล้ว ${(r.existed ?? []).length} คน`];
       if (r.missingId?.length) lines.push(`\nข้ามเพราะไม่มีรหัสนิสิต ${r.missingId.length} คน:\n${r.missingId.join('\n')}`);
       if (r.failed?.length) lines.push(`\nไม่สำเร็จ ${r.failed.length} คน:\n${r.failed.map((f: any) => `${f.student_id}: ${f.reason}`).join('\n')}`);
       alert(lines.join('\n'));
@@ -1131,7 +1146,11 @@ const App: React.FC = () => {
     if (!confirm(`รีเซ็ตรหัสผ่านของ ${sid.trim()} กลับเป็นรหัสนิสิต?`)) return;
     setLoading(true);
     try {
-      await callStudentAdmin({ action: 'reset', student_id: sid.trim() });
+      const r = await callStudentAdmin({ action: 'reset', student_id: sid.trim() });
+      if (!r?.ok) {
+        setLoading(false);
+        return alert('Edge Function ตอบกลับมาในรูปแบบที่ไม่รู้จัก\n\nตรวจว่าโค้ดที่ deploy ตรงกับ supabase/functions/student-admin/index.ts\n\nคำตอบที่ได้รับ: ' + JSON.stringify(r));
+      }
       alert(`รีเซ็ตเรียบร้อย\n\nรหัสผ่านใหม่ของ ${sid.trim()} คือรหัสนิสิตของตัวเอง\nระบบจะบังคับให้ตั้งรหัสใหม่ตอนเข้าครั้งถัดไป`);
     } catch (e: any) { alert('รีเซ็ตไม่สำเร็จ: ' + e.message); }
     setLoading(false);
