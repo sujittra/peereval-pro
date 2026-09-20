@@ -730,6 +730,17 @@ const App: React.FC = () => {
   // แทนที่จะเห็นข้อความบอกว่าปิดรับแล้ว
   const openStudentGroups = importedGroups.filter(g => projectStatus[g.project]);
 
+  // ชื่อของนิสิตถูกอ่านครั้งเดียวตอนเลือกกลุ่ม ถ้าอาจารย์แก้รายชื่อระหว่างที่ล็อกอินค้างอยู่
+  // ค่าที่ถืออยู่จะเก่าและไม่ตรงกับฐานข้อมูล ทำให้ RLS ปฏิเสธตอนส่งคะแนน
+  // จึงซิงก์ใหม่ทุกครั้งที่ข้อมูลกลุ่มถูกโหลด
+  useEffect(() => {
+    if (sessionRole !== 'student' || !studentSession) return;
+    const g = importedGroups.find(x => x.project === studentSession.project && x.name === studentSession.groupName);
+    if (g?.myLabel && g.myLabel !== studentSession.memberLabel) {
+      setStudentSession({ ...studentSession, memberLabel: g.myLabel });
+    }
+  }, [sessionRole, importedGroups, studentSession]);
+
   // นิสิตที่เหลือโปรเจกต์เปิดรับอยู่กลุ่มเดียวเข้า dashboard ได้เลย ถ้ามีหลายกลุ่มค่อยให้เลือก
   useEffect(() => {
     if (sessionRole !== 'student' || studentSession || openStudentGroups.length !== 1) return;
@@ -1227,7 +1238,21 @@ const App: React.FC = () => {
     const { error } = await supabase.from('peer_evals').insert(newEval);
     setLoading(false);
     if (!error) { fetchData(); setStudentSuccessMsg(`บันทึกคะแนนให้ "${targetLabel}" เรียบร้อย`); setView('student-dashboard'); }
-    else { alert('Error submitting vote: ' + error.message); }
+    else if (/row-level security/i.test(error.message)) {
+      // RLS ปฏิเสธ = ชื่อที่ส่งไปไม่ตรงกับรายชื่อในกลุ่มตามที่ฐานข้อมูลเห็น
+      // แสดงค่าที่ส่งจริงเทียบกับรายชื่อที่หน้าเว็บมี เพื่อให้ชี้จุดผิดได้ทันที
+      const g = importedGroups.find(x => x.project === studentSession.project && x.name === studentSession.groupName);
+      alert(
+        'บันทึกไม่สำเร็จ: ฐานข้อมูลไม่ยืนยันว่าคุณอยู่ในกลุ่มนี้\n\n' +
+        `โปรเจกต์: ${studentSession.project}\n` +
+        `กลุ่ม: ${studentSession.groupName}\n` +
+        `ผู้ประเมิน: ${studentSession.memberLabel || '(ว่าง)'}\n` +
+        `ผู้ถูกประเมิน: ${targetLabel}\n` +
+        `รายชื่อในกลุ่มที่หน้าเว็บเห็น: ${(g?.membersArray ?? []).map(m => m.label).join(' | ') || '(ไม่มี)'}\n\n` +
+        'ถ้าอาจารย์เพิ่งแก้รายชื่อ ให้ออกจากระบบแล้วเข้าใหม่ แล้วลองอีกครั้ง',
+      );
+    }
+    else { alert('บันทึกไม่สำเร็จ: ' + error.message); }
   };
 
   const handleGroupSelect = (groupName: string) => {
