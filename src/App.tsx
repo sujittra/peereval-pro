@@ -295,9 +295,10 @@ const WeightModal = ({ project, initial, busy, onSave, onClose }: {
 };
 
 // เกณฑ์ที่นิสิตใช้ประเมินกันเอง แยกคนละชุดกับเกณฑ์ของอาจารย์
-const StudentCriteriaModal = ({ project, initial, busy, onSave, onClose }: {
+const StudentCriteriaModal = ({ project, initial, peerWeight, busy, onSave, onClose }: {
   project: string;
   initial: StudentCriterion[];
+  peerWeight: number;
   busy: boolean;
   onSave: (rows: StudentCriterion[]) => void;
   onClose: () => void;
@@ -353,7 +354,7 @@ const StudentCriteriaModal = ({ project, initial, busy, onSave, onClose }: {
           className="mt-3 text-xs text-amber-600 hover:underline flex items-center gap-1"><Plus size={12}/> เพิ่มเกณฑ์</button>
 
         <div className="mt-4 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded text-xs leading-relaxed">
-          คะแนนเต็มรวม <span className="font-bold font-mono">{total}</span> คะแนน ระบบคิดเป็นสัดส่วนแล้วถ่วงเป็น 6% เสมอ ไม่ว่าคะแนนเต็มจะเป็นเท่าไร<br/>
+          คะแนนเต็มรวม <span className="font-bold font-mono">{total}</span> คะแนน ระบบคิดเป็นสัดส่วนแล้วถ่วงเป็น <span className="font-bold font-mono">{peerWeight}%</span> ตามที่ตั้งไว้ในสัดส่วนคะแนนของโปรเจกต์นี้ ไม่ว่าคะแนนเต็มจะเป็นเท่าไร<br/>
           <span className="font-bold">คะแนนที่นิสิตส่งไปแล้วจะถูกคิดด้วยคะแนนเต็มใหม่ทันที</span> ถ้าแก้หลังเริ่มประเมินแล้ว ควรให้นิสิตประเมินใหม่
         </div>
 
@@ -1496,6 +1497,7 @@ const App: React.FC = () => {
         <StudentCriteriaModal
           project={teacherProject}
           initial={studentCriteriaOf(teacherProject)}
+          peerWeight={weightsOf(teacherProject).peer}
           busy={loading}
           onSave={saveStudentCriteria}
           onClose={() => setShowStudentCriteria(false)}
