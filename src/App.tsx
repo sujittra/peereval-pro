@@ -4,7 +4,7 @@ import {
   Save, User, Users, Trophy, CheckCircle, Calculator, FileText, Upload, 
   Lock, LogOut, ArrowRight, Key, Check, Layers, Plus, Copy, Settings, 
   Edit2, Trash2, X, Pencil, FileSpreadsheet, Clock, Power, 
-  AlertTriangle, Mail, RefreshCw, Loader2
+  AlertTriangle, Mail, Loader2
 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
@@ -15,6 +15,12 @@ const supabaseUrl = 'https://ewjbfxerlbnmreeywamg.supabase.co';
 const supabaseKey = 'sb_publishable_5lfD7JnOoOJ7r-MGoFieKA_4Oh_QCHP';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// บัญชีนิสิตใช้อีเมลที่สร้างจากรหัสนิสิต (ไม่ได้ใช้ส่งเมลจริง)
+// ถ้าเปลี่ยนโดเมน ต้องแก้ให้ตรงกันทั้ง 3 ที่:
+// public.student_email() ใน supabase/student-auth.sql และ supabase/functions/student-admin/index.ts
+const STUDENT_EMAIL_DOMAIN = 'up.ac.th';
+const studentEmailOf = (studentId: string) => `${studentId.trim().toLowerCase()}@${STUDENT_EMAIL_DOMAIN}`;
 
 // ==============================
 // TYPE DEFINITIONS
@@ -56,6 +62,7 @@ interface Group {
   name: string;
   membersString: string;
   membersArray: Member[];
+  myLabel?: string; // ชื่อของนิสิตที่ล็อกอินอยู่ในกลุ่มนี้ (มาจาก view my_groups)
 }
 
 interface PeerEval {
@@ -113,6 +120,44 @@ const defaultTeacherCriteria: TeacherCriterion[] = [
   { id: 5, name: '5. Deployment & Demo', options: [{ score: 1, desc: 'ไม่มี Demo' }, { score: 3, desc: 'Demo บางส่วน' }, { score: 5, desc: 'Deploy ครบถ้วน' }] },
 ];
 
+// ประกาศนอก App เพราะคอมโพเนนต์ที่ประกาศข้างในจะถูก remount ทุกครั้งที่ App re-render
+// ซึ่งจะล้างค่าที่พิมพ์ค้างไว้ในช่องรหัสผ่าน (เช่นตอน setLoading)
+const ChangePasswordModal = ({ forced, loading, onSubmit, onClose, onLogout }: {
+  forced: boolean;
+  loading: boolean;
+  onSubmit: (newPass: string, confirmPass: string) => void;
+  onClose: () => void;
+  onLogout: () => void;
+}) => {
+  const [newPass, setNewPass] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+        <div className="flex justify-between items-center mb-1">
+          <h3 className="text-lg font-bold flex items-center gap-2"><Key size={20} className="text-amber-600"/> {forced ? 'ตั้งรหัสผ่านใหม่' : 'เปลี่ยนรหัสผ่าน'}</h3>
+          {!forced && <button onClick={onClose}><X size={20} className="text-slate-400 hover:text-slate-600"/></button>}
+        </div>
+        {forced && <p className="text-sm text-slate-500 mb-4">คุณกำลังใช้รหัสผ่านเริ่มต้น ต้องตั้งรหัสใหม่ก่อนจึงจะใช้งานต่อได้</p>}
+        <form className="space-y-3 mt-4" onSubmit={e => { e.preventDefault(); onSubmit(newPass, confirmPass); }}>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase">รหัสผ่านใหม่</label>
+            <input type="password" autoComplete="new-password" value={newPass} onChange={e => setNewPass(e.target.value)} className="w-full p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-amber-400 text-sm" placeholder="อย่างน้อย 6 ตัวอักษร"/>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase">ยืนยันรหัสผ่านใหม่</label>
+            <input type="password" autoComplete="new-password" value={confirmPass} onChange={e => setConfirmPass(e.target.value)} className="w-full p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-amber-400 text-sm" placeholder="พิมพ์ซ้ำอีกครั้ง"/>
+          </div>
+          <button type="submit" disabled={loading} className="w-full py-2.5 bg-amber-600 text-white rounded-lg font-bold hover:bg-amber-700 disabled:opacity-50 flex justify-center items-center gap-2">
+            {loading && <Loader2 size={16} className="animate-spin"/>} บันทึกรหัสผ่าน
+          </button>
+          {forced && <button type="button" onClick={onLogout} className="w-full text-xs text-slate-400 hover:text-slate-600">ออกจากระบบ</button>}
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<'landing' | 'teacher' | 'student-login' | 'student-dashboard' | 'student-vote'>('landing');
@@ -124,7 +169,7 @@ const App: React.FC = () => {
   const [peerEvaluations, setPeerEvaluations] = useState<PeerEval[]>([]); 
   const [importedGroups, setImportedGroups] = useState<Group[]>([]); 
 
-  const [session, setSession] = useState<any>(null);
+  const [, setSession] = useState<any>(null);
   const [teacherProject, setTeacherProject] = useState<string>(''); 
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null); 
   
@@ -139,11 +184,11 @@ const App: React.FC = () => {
   
   const [groupCriteria, setGroupCriteria] = useState<TeacherCriterion[]>([]);
 
-  const [loginProject, setLoginProject] = useState('');
-  const [loginGroup, setLoginGroup] = useState('');
-  const [loginMemberLabel, setLoginMemberLabel] = useState('');
-  const [loginMemberId, setLoginMemberId] = useState('');
-  const [studentAuthInput, setStudentAuthInput] = useState('');
+  const [sessionRole, setSessionRole] = useState<'teacher' | 'student' | null>(null);
+  const [studentIdInput, setStudentIdInput] = useState('');
+  const [studentPasswordInput, setStudentPasswordInput] = useState('');
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [studentSession, setStudentSession] = useState<StudentSession | null>(null); 
   const [targetLabel, setTargetLabel] = useState('');
   const [currentScores, setCurrentScores] = useState<StudentCriterion[]>(defaultCriteriaTemplate.map(c => ({...c})));
@@ -152,43 +197,92 @@ const App: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        // RLS ไม่เปิดข้อมูลใดๆ ให้ anon อีกแล้ว ยังไม่ล็อกอินก็ไม่ต้องยิง query
+        setProjectList([]); setProjectStatus({}); setImportedGroups([]);
+        setPeerEvaluations([]); setRecords([]);
+        return;
+      }
+      const isStudent = session.user.app_metadata?.role === 'student';
+
+      // เกณฑ์การให้คะแนน อ่านได้ทั้งอาจารย์และนิสิต
+      const { data: criteria, error: critErr } = await supabase.from('criteria').select('*');
+      if (critErr) throw critErr;
+      const criteriaMap: ProjectCriteriaMap = {};
+      (criteria ?? []).forEach((c: any) => criteriaMap[c.project_name] = c.data);
+
+      if (isStudent) {
+        // นิสิตอ่านตาราง groups/projects ตรงๆ ไม่ได้ ใช้ view my_groups ที่ตัดรหัสนิสิตออกแล้ว
+        const { data: mine, error: mineErr } = await supabase.from('my_groups').select('*');
+        if (mineErr) throw mineErr;
+
+        setImportedGroups((mine ?? []).map((g: any) => ({
+          id: g.id,
+          project: g.project_name,
+          name: g.name,
+          myLabel: g.my_label,
+          membersArray: (g.members ?? []) as Member[],
+          membersString: ''
+        })));
+
+        const pList: string[] = Array.from(new Set((mine ?? []).map((g: any) => g.project_name)));
+        const pStatus: ProjectStatus = {};
+        (mine ?? []).forEach((g: any) => pStatus[g.project_name] = g.is_active);
+        setProjectList(pList);
+        setProjectStatus(pStatus);
+
+        pList.forEach(p => { if (!criteriaMap[p]) criteriaMap[p] = JSON.parse(JSON.stringify(defaultTeacherCriteria)); });
+        setAllProjectCriteria(criteriaMap);
+
+        // view นี้คืนเฉพาะรายการที่ตัวเองเป็นผู้ประเมิน และไม่มีคอลัมน์คะแนน
+        const { data: status, error: stErr } = await supabase.from('peer_eval_status').select('*');
+        if (stErr) throw stErr;
+        setPeerEvaluations((status ?? []).map((e: any) => ({
+          project: e.project_name, groupName: e.group_name, evaluator: e.evaluator, target: e.target,
+          scores: [], totalRaw: 0, timestamp: ''
+        })));
+        setRecords([]);
+        return;
+      }
+
+      // ---------- ฝั่งอาจารย์ ----------
+      // บัญชีที่ล็อกอินได้แต่ไม่อยู่ใน whitelist จะอ่านอะไรไม่ได้เลย
+      // กันไว้ตรงนี้เพื่อให้ได้ข้อความบอกเหตุผล แทนที่จะเห็นหน้าว่างเปล่า
+      const { data: teacherRow } = await supabase.from('teachers').select('user_id').eq('user_id', session.user.id).maybeSingle();
+      if (!teacherRow) {
+        await supabase.auth.signOut();
+        alert('บัญชีนี้ยังไม่ได้รับสิทธิ์อาจารย์ กรุณาติดต่อผู้ดูแลระบบ');
+        return;
+      }
+
       const { data: projects, error: projErr } = await supabase.from('projects').select('*');
       if (projErr) throw projErr;
-      
-      const pList = projects.map((p: any) => p.name);
+      const pList: string[] = (projects ?? []).map((p: any) => p.name);
       const pStatus: ProjectStatus = {};
-      projects.forEach((p: any) => pStatus[p.name] = p.is_active);
-      
+      (projects ?? []).forEach((p: any) => pStatus[p.name] = p.is_active);
       setProjectList(pList);
       setProjectStatus(pStatus);
-      
       if (pList.length > 0 && (!teacherProject || !pList.includes(teacherProject))) {
         setTeacherProject(pList[0]);
       }
 
-      const { data: criteria, error: critErr } = await supabase.from('criteria').select('*');
-      if (critErr) throw critErr;
-      const criteriaMap: ProjectCriteriaMap = {};
-      criteria.forEach((c: any) => criteriaMap[c.project_name] = c.data);
-      pList.forEach(p => {
-        if (!criteriaMap[p]) criteriaMap[p] = JSON.parse(JSON.stringify(defaultTeacherCriteria));
-      });
+      pList.forEach(p => { if (!criteriaMap[p]) criteriaMap[p] = JSON.parse(JSON.stringify(defaultTeacherCriteria)); });
       setAllProjectCriteria(criteriaMap);
 
       const { data: groups, error: grpErr } = await supabase.from('groups').select('*');
       if (grpErr) throw grpErr;
-      const parsedGroups = groups.map((g: any) => ({
+      setImportedGroups((groups ?? []).map((g: any) => ({
         id: g.id,
         project: g.project_name,
         name: g.name,
         membersArray: g.members,
         membersString: g.members.map((m: any) => m.id ? `${m.id} ${m.name}` : m.name).join(', ')
-      }));
-      setImportedGroups(parsedGroups);
+      })));
 
       const { data: pEvals, error: peErr } = await supabase.from('peer_evals').select('*');
       if (peErr) throw peErr;
-      const parsedPEvals = pEvals.map((e: any) => ({
+      setPeerEvaluations((pEvals ?? []).map((e: any) => ({
         id: e.id,
         project: e.project_name,
         groupName: e.group_name,
@@ -197,19 +291,17 @@ const App: React.FC = () => {
         scores: e.scores,
         totalRaw: e.total_raw,
         timestamp: e.created_at
-      }));
-      setPeerEvaluations(parsedPEvals);
+      })));
 
       const { data: tEvals, error: teErr } = await supabase.from('teacher_evals').select('*');
       if (teErr) throw teErr;
-      const parsedTEvals = tEvals.map((e: any) => ({
+      setRecords((tEvals ?? []).map((e: any) => ({
         id: e.created_at,
         project: e.project_name,
         groupName: e.group_name,
         ...e.data,
         totalScore: e.total_score
-      }));
-      setRecords(parsedTEvals);
+      })));
 
     } catch (error: any) {
       console.error('Error fetching data:', error.message);
@@ -219,20 +311,38 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchData();
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // INITIAL_SESSION ถูกยิงตอน subscribe เสมอ จึงไม่ต้องเรียก getSession() แยก
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-         setShowLoginModal(false);
-         setView('teacher');
-         fetchData();
+
+      if (event === 'SIGNED_OUT' || !session) {
+        setSessionRole(null); setStudentSession(null); setMustChangePassword(false);
+        setView('landing');
+        return;
       }
+
+      // role มาจาก app_metadata ซึ่งแก้ได้เฉพาะ service_role นิสิตปลอมเป็นอาจารย์ไม่ได้
+      const role = session.user.app_metadata?.role === 'student' ? 'student' : 'teacher';
+      setSessionRole(role);
+      setMustChangePassword(role === 'student' && !!session.user.user_metadata?.must_change_password);
+
+      // เปลี่ยนหน้าเฉพาะตอนเพิ่งล็อกอินหรือเปิดแอปมาพร้อม session เดิม
+      // ไม่ทำตอน TOKEN_REFRESHED ไม่งั้นนิสิตที่กำลังให้คะแนนอยู่จะถูกเด้งกลับ dashboard
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        setShowLoginModal(false);
+        setView(role === 'student' ? 'student-dashboard' : 'teacher');
+      }
+      fetchData();
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // นิสิตที่อยู่กลุ่มเดียวเข้า dashboard ได้เลย ถ้าอยู่หลายโปรเจกต์ค่อยให้เลือก
+  useEffect(() => {
+    if (sessionRole !== 'student' || studentSession || importedGroups.length !== 1) return;
+    const g = importedGroups[0];
+    setStudentSession({ project: g.project, groupName: g.name, memberId: '', memberLabel: g.myLabel ?? '' });
+  }, [sessionRole, importedGroups, studentSession]);
 
   useEffect(() => {
     if (teacherProject && allProjectCriteria[teacherProject]) {
@@ -366,17 +476,83 @@ const App: React.FC = () => {
 
   const getGroupsByProject = (proj: string) => importedGroups.filter(g => g.project === proj);
 
-  const handleStudentLogin = () => {
-    if (!loginProject || !loginGroup || !loginMemberLabel) return alert('กรุณาเลือกข้อมูลให้ครบถ้วน');
-    if (!projectStatus[loginProject]) return alert(`โปรเจกต์ "${loginProject}" ปิดรับการประเมินแล้ว`);
-    if (loginMemberId && studentAuthInput.trim() !== loginMemberId) return alert('รหัสนิสิตไม่ถูกต้อง');
-    setStudentSession({ project: loginProject, groupName: loginGroup, memberId: loginMemberId, memberLabel: loginMemberLabel });
-    setView('student-dashboard');
-    setStudentAuthInput('');
+  const handleStudentLogin = async () => {
+    const sid = studentIdInput.trim();
+    if (!sid || !studentPasswordInput) return alert('กรุณากรอกรหัสนิสิตและรหัสผ่าน');
+    setLoading(true);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: studentEmailOf(sid),
+      password: studentPasswordInput,
+    });
+    setLoading(false);
+    // ไม่แยกว่า "ไม่มีบัญชี" หรือ "รหัสผ่านผิด" เพื่อไม่ให้ใช้หน้านี้ไล่เดาว่ามีนิสิตคนไหนอยู่ในระบบบ้าง
+    if (error) return alert('รหัสนิสิตหรือรหัสผ่านไม่ถูกต้อง\n\nถ้าเพิ่งใช้ครั้งแรก รหัสผ่านเริ่มต้นคือรหัสนิสิตของคุณ');
+    if (data.user?.app_metadata?.role !== 'student') {
+      await supabase.auth.signOut();
+      return alert('บัญชีนี้ไม่ใช่บัญชีนิสิต');
+    }
+    setStudentPasswordInput('');
   };
 
-  const handleStudentLogout = () => {
-    setStudentSession(null); setLoginProject(''); setLoginGroup(''); setLoginMemberLabel(''); setLoginMemberId(''); setView('landing');
+  const handleStudentLogout = async () => {
+    await supabase.auth.signOut();
+    setStudentSession(null); setStudentIdInput(''); setStudentPasswordInput(''); setView('landing');
+  };
+
+  // ใช้ได้ทั้งนิสิตและอาจารย์ เปลี่ยนรหัสของตัวเองเท่านั้น
+  const handleChangeOwnPassword = async (newPass: string, confirmPass: string) => {
+    if (newPass.length < 6) return alert('รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร');
+    if (newPass !== confirmPass) return alert('รหัสผ่านทั้งสองช่องไม่ตรงกัน');
+    if (sessionRole === 'student' && newPass.trim() === studentIdInput.trim()) {
+      return alert('ห้ามตั้งรหัสผ่านเป็นรหัสนิสิตของตัวเอง');
+    }
+    setLoading(true);
+    const { error } = await supabase.auth.updateUser({
+      password: newPass,
+      data: { must_change_password: false },
+    });
+    setLoading(false);
+    if (error) return alert('เปลี่ยนรหัสผ่านไม่สำเร็จ: ' + error.message);
+    setMustChangePassword(false);
+    setShowChangePassword(false);
+    alert('เปลี่ยนรหัสผ่านเรียบร้อย');
+  };
+
+  // งานที่ต้องใช้ service_role ทำผ่าน Edge Function เท่านั้น เรียกจากเบราว์เซอร์ตรงๆ ไม่ได้
+  const callStudentAdmin = async (body: Record<string, unknown>) => {
+    const { data, error } = await supabase.functions.invoke('student-admin', { body });
+    if (error) {
+      // invoke คืนข้อความกลางๆ เมื่อ status ไม่ใช่ 2xx ต้องอ่าน body เองถึงจะได้เหตุผลจริง
+      const detail = await (error as any).context?.json?.().catch(() => null);
+      throw new Error(detail?.error ?? error.message);
+    }
+    return data;
+  };
+
+  const handleProvisionStudents = async () => {
+    if (!teacherProject) return;
+    if (!confirm(`สร้างบัญชีนิสิตทั้งหมดในโปรเจกต์ "${teacherProject}"?\n\nรหัสผ่านเริ่มต้นของแต่ละคน = รหัสนิสิตของตัวเอง\nคนที่มีบัญชีอยู่แล้วจะถูกข้าม ไม่กระทบรหัสผ่านเดิม`)) return;
+    setLoading(true);
+    try {
+      const r = await callStudentAdmin({ action: 'provision', project_name: teacherProject });
+      const lines = [`สร้างบัญชีใหม่ ${r.created.length} คน`, `มีบัญชีอยู่แล้ว ${r.existed.length} คน`];
+      if (r.missingId?.length) lines.push(`\nข้ามเพราะไม่มีรหัสนิสิต ${r.missingId.length} คน:\n${r.missingId.join('\n')}`);
+      if (r.failed?.length) lines.push(`\nไม่สำเร็จ ${r.failed.length} คน:\n${r.failed.map((f: any) => `${f.student_id}: ${f.reason}`).join('\n')}`);
+      alert(lines.join('\n'));
+    } catch (e: any) { alert('สร้างบัญชีไม่สำเร็จ: ' + e.message); }
+    setLoading(false);
+  };
+
+  const handleResetStudentPassword = async () => {
+    const sid = prompt('กรอกรหัสนิสิตที่ต้องการรีเซ็ตรหัสผ่าน');
+    if (!sid?.trim()) return;
+    if (!confirm(`รีเซ็ตรหัสผ่านของ ${sid.trim()} กลับเป็นรหัสนิสิต?`)) return;
+    setLoading(true);
+    try {
+      await callStudentAdmin({ action: 'reset', student_id: sid.trim() });
+      alert(`รีเซ็ตเรียบร้อย\n\nรหัสผ่านใหม่ของ ${sid.trim()} คือรหัสนิสิตของตัวเอง\nระบบจะบังคับให้ตั้งรหัสใหม่ตอนเข้าครั้งถัดไป`);
+    } catch (e: any) { alert('รีเซ็ตไม่สำเร็จ: ' + e.message); }
+    setLoading(false);
   };
 
   const startVote = (targetName: string) => {
@@ -439,7 +615,7 @@ const App: React.FC = () => {
       const addCriterion = () => { const newId = editingCriteria.length > 0 ? Math.max(...editingCriteria.map(c => c.id)) + 1 : 1; setEditingCriteria([...editingCriteria, { id: newId, name: 'หัวข้อใหม่', options: [{ score: 1, desc: '...' }, { score: 3, desc: '...' }, { score: 5, desc: '...' }] }]); };
       const removeCriterion = (id: number) => { setEditingCriteria(editingCriteria.filter(c => c.id !== id)); };
       const saveChanges = () => { updateProjectCriteria(editingCriteria); onClose(); };
-      return (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl p-6 h-[85vh] flex flex-col"><div className="flex justify-between items-center mb-4 pb-2 border-b"><div><h3 className="text-xl font-bold flex items-center gap-2 text-slate-800"><Edit2 size={24} className="text-blue-600"/> แก้ไขเกณฑ์การประเมิน</h3><p className="text-sm text-slate-500">สำหรับโปรเจกต์: <span className="font-bold text-blue-600">{teacherProject}</span></p></div><button onClick={onClose}><X size={24} className="text-slate-400 hover:text-red-500"/></button></div><div className="flex-grow overflow-y-auto space-y-4 pr-2">{editingCriteria.map((c, idx) => (<div key={c.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50 relative group"><button onClick={() => removeCriterion(c.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500"><Trash2 size={18}/></button><div className="mb-3"><label className="text-xs font-bold text-slate-400 uppercase">หัวข้อประเมิน</label><input type="text" value={c.name} onChange={(e) => handleChange(c.id, 'name', e.target.value)} className="w-full font-bold text-slate-700 bg-transparent border-b border-slate-300 focus:border-blue-500 outline-none py-1"/></div><div className="grid grid-cols-1 md:grid-cols-3 gap-3">{c.options.map((opt, optIdx) => (<div key={optIdx}><div className="text-xs font-bold text-slate-500 mb-1">ระดับ {opt.score} คะแนน</div><textarea value={opt.desc} onChange={(e) => handleChange(c.id, 'options', e.target.value, optIdx)} className="w-full text-sm p-2 border rounded bg-white h-20 resize-none focus:ring-1 focus:ring-blue-300 outline-none"/></div>))}</div></div>))}<button onClick={addCriterion} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600 transition flex items-center justify-center gap-2"><Plus size={20}/> เพิ่มหัวข้อเกณฑ์</button></div><div className="pt-4 mt-2 border-t flex justify-end gap-3"><button onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">ยกเลิก</button><button onClick={saveChanges} className="px-5 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-md">บันทึกการแก้ไข</button></div></div></div>);
+      return (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl p-6 h-[85vh] flex flex-col"><div className="flex justify-between items-center mb-4 pb-2 border-b"><div><h3 className="text-xl font-bold flex items-center gap-2 text-slate-800"><Edit2 size={24} className="text-blue-600"/> แก้ไขเกณฑ์การประเมิน</h3><p className="text-sm text-slate-500">สำหรับโปรเจกต์: <span className="font-bold text-blue-600">{teacherProject}</span></p></div><button onClick={onClose}><X size={24} className="text-slate-400 hover:text-red-500"/></button></div><div className="flex-grow overflow-y-auto space-y-4 pr-2">{editingCriteria.map((c) => (<div key={c.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50 relative group"><button onClick={() => removeCriterion(c.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500"><Trash2 size={18}/></button><div className="mb-3"><label className="text-xs font-bold text-slate-400 uppercase">หัวข้อประเมิน</label><input type="text" value={c.name} onChange={(e) => handleChange(c.id, 'name', e.target.value)} className="w-full font-bold text-slate-700 bg-transparent border-b border-slate-300 focus:border-blue-500 outline-none py-1"/></div><div className="grid grid-cols-1 md:grid-cols-3 gap-3">{c.options.map((opt, optIdx) => (<div key={optIdx}><div className="text-xs font-bold text-slate-500 mb-1">ระดับ {opt.score} คะแนน</div><textarea value={opt.desc} onChange={(e) => handleChange(c.id, 'options', e.target.value, optIdx)} className="w-full text-sm p-2 border rounded bg-white h-20 resize-none focus:ring-1 focus:ring-blue-300 outline-none"/></div>))}</div></div>))}<button onClick={addCriterion} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-blue-400 hover:text-blue-600 transition flex items-center justify-center gap-2"><Plus size={20}/> เพิ่มหัวข้อเกณฑ์</button></div><div className="pt-4 mt-2 border-t flex justify-end gap-3"><button onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">ยกเลิก</button><button onClick={saveChanges} className="px-5 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-md">บันทึกการแก้ไข</button></div></div></div>);
   };
 
   const ProjectManagerModal = ({ onClose }: { onClose: () => void }) => {
@@ -455,41 +631,92 @@ const App: React.FC = () => {
     const availableProjects = [...new Set(importedGroups.map(g => g.project))].filter(p => p !== teacherProject);
     const handleReuse = async () => { if (!sourceProject) return alert('กรุณาเลือกโปรเจกต์ต้นทาง'); const sourceGroups = importedGroups.filter(g => g.project === sourceProject); if (sourceGroups.length === 0) return alert('ไม่พบข้อมูลกลุ่มในโปรเจกต์ที่เลือก'); 
         const newGroupsPayload = sourceGroups.map(g => ({ project_name: teacherProject, name: g.name, members: g.membersArray }));
-        const { error } = await supabase.from('groups').insert(newGroupsPayload);
+        const { error } = await supabase.from('groups').upsert(newGroupsPayload, { onConflict: 'project_name,name' });
         if(!error) { onClose(); fetchData(); alert(`คัดลอกกลุ่มเรียบร้อย`); } else { alert(error.message); }
     };
     const processImport = async () => { 
         const lines = text.split(/\n/); const groupsMap = new Map(); lines.forEach(line => { let cleanLine = line.trim().replace(/"/g, ''); if (!cleanLine) return; let parts = cleanLine.split(/\t/); if (parts.length === 1) { const match = cleanLine.match(/^(.+?)\s+(\d{3,})\s+(.+)$/); if (match) parts = [match[1], match[2], match[3]]; else { const spaceIdx = cleanLine.indexOf(' '); if(spaceIdx > 0) parts = [cleanLine.substring(0, spaceIdx), cleanLine.substring(spaceIdx+1)]; } } const groupName = parts[0]?.trim(); if (!groupName) return; let membersToAdd: Member[] = []; if (parts.length >= 3) { membersToAdd.push({ id: parts[1].trim(), name: parts[2].trim(), label: parts[2].trim() }); } else if (parts.length === 2) { const col2 = parts[1].trim(); const idNameMatch = col2.match(/^(\d{3,})\s+(.+)$/); if (idNameMatch) membersToAdd.push({ id: idNameMatch[1], name: idNameMatch[2], label: idNameMatch[2] }); else { const names = col2.split(/,|،/).map(n => n.trim()).filter(n => n); membersToAdd = names.map(n => ({ id: '', name: n, label: n })); } } if (groupsMap.has(groupName)) groupsMap.set(groupName, [...groupsMap.get(groupName), ...membersToAdd]); else groupsMap.set(groupName, membersToAdd); }); 
-        const parsed = Array.from(groupsMap.entries()).map(([name, members]) => ({ project_name: teacherProject, name: name as string, members: members as Member[] })); 
-        if (parsed.length > 0) { const { error } = await supabase.from('groups').insert(parsed); if(!error) { onClose(); fetchData(); alert(`นำเข้าสำเร็จ`); } else { alert(error.message); } } else { alert('ไม่พบข้อมูลที่ถูกต้อง'); } 
+        const parsed = Array.from(groupsMap.entries()).map(([name, members]) => ({ project_name: teacherProject, name: name as string, members: members as Member[] }));
+        if (parsed.length === 0) return alert('ไม่พบข้อมูลที่ถูกต้อง');
+
+        // ตรวจข้อมูลก่อนบันทึก: รหัสนิสิตใช้เป็นรหัสผ่าน และชื่อใช้เป็นตัวระบุตัวตนตอนให้คะแนน
+        // ถ้าขาดรหัส หรือชื่อซ้ำกันในกลุ่ม ระบบจะทำงานผิดพลาดแบบเงียบๆ จึงต้องบล็อกไว้ตั้งแต่ตอนนำเข้า
+        const problems: string[] = [];
+        parsed.forEach(g => {
+          const missingId = g.members.filter(m => !m.id?.trim()).map(m => m.name);
+          if (missingId.length > 0) problems.push(`• กลุ่ม "${g.name}" ไม่มีรหัสนิสิต: ${missingId.join(', ')}`);
+
+          const counts = new Map<string, number>();
+          g.members.forEach(m => counts.set(m.label, (counts.get(m.label) || 0) + 1));
+          const duplicates = Array.from(counts.entries()).filter(([, n]) => n > 1).map(([label, n]) => `${label} (${n} ครั้ง)`);
+          if (duplicates.length > 0) problems.push(`• กลุ่ม "${g.name}" ชื่อซ้ำ: ${duplicates.join(', ')}`);
+        });
+        if (problems.length > 0) {
+          return alert(`ไม่สามารถนำเข้าได้ พบปัญหา ${problems.length} รายการ\n\n${problems.join('\n')}\n\nรหัสนิสิตใช้เป็นรหัสผ่านของนิสิต จึงต้องมีครบทุกคน\nชื่อใช้แยกว่าใครประเมินใคร จึงห้ามซ้ำกันภายในกลุ่มเดียวกัน`);
+        }
+
+        const totalMembers = parsed.reduce((sum, g) => sum + g.members.length, 0);
+        // upsert: นำเข้าชื่อกลุ่มเดิมซ้ำ = ทับของเดิม ไม่สร้างกลุ่มซ้ำ (ต้องมี unique constraint ที่ groups-unique.sql)
+        const { error } = await supabase.from('groups').upsert(parsed, { onConflict: 'project_name,name' });
+        if (error) return alert(error.message);
+        onClose(); fetchData(); alert(`นำเข้าสำเร็จ ${parsed.length} กลุ่ม รวม ${totalMembers} คน`);
     };
     return (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6"><h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Upload size={20} className="text-blue-600"/> จัดการรายชื่อกลุ่ม</h3><div className="bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded mb-4 text-sm flex justify-between items-center"><span><span className="font-bold">Project ปัจจุบัน:</span> {teacherProject}</span></div><div className="flex gap-2 mb-4 border-b border-slate-200"><button onClick={() => setMode('new')} className={`pb-2 px-4 text-sm font-bold transition-all ${mode === 'new' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><Plus size={14} className="inline mr-1"/> นำเข้าใหม่ (Excel)</button><button onClick={() => availableProjects.length > 0 && setMode('reuse')} disabled={availableProjects.length === 0} className={`pb-2 px-4 text-sm font-bold transition-all ${mode === 'reuse' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'} ${availableProjects.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}><Copy size={14} className="inline mr-1"/> ใช้กลุ่มเดิม (Reuse)</button></div>{mode === 'new' ? (<div className="animate-in fade-in"><div className="text-sm text-slate-600 mb-2">Copy ข้อมูลจาก Excel มาวางได้เลย</div><textarea className="w-full h-40 border p-3 rounded mb-4 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder={`Group 1\t660123\tSomchai`} value={text} onChange={e => setText(e.target.value)}/><div className="flex justify-end gap-2"><button onClick={onClose} className="px-4 py-2 text-gray-500 hover:bg-slate-50 rounded">ยกเลิก</button><button onClick={processImport} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">ยืนยันนำเข้า</button></div></div>) : (<div className="animate-in fade-in py-4 text-center space-y-4"><div className="text-slate-600 text-sm">เลือกโปรเจกต์ต้นทาง</div><select className="w-full p-3 border rounded-lg bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500" value={sourceProject} onChange={e => setSourceProject(e.target.value)}><option value="">-- เลือกโปรเจกต์ต้นทาง --</option>{availableProjects.map((p, i) => <option key={i} value={p}>{p}</option>)}</select><div className="flex justify-end gap-2 mt-4"><button onClick={onClose} className="px-4 py-2 text-gray-500 hover:bg-slate-50 rounded">ยกเลิก</button><button onClick={handleReuse} disabled={!sourceProject} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">คัดลอกข้อมูล</button></div></div>)}</div></div>);
   };
 
   const renderStudentLogin = () => {
-    const projectGroups = getGroupsByProject(loginProject);
-    const selectedGroupObj = projectGroups.find(g => g.name === loginGroup);
-    const isClosed = loginProject && !projectStatus[loginProject];
     return (
       <div className="w-full max-w-md mx-auto py-10 px-4 animate-in fade-in zoom-in-95 duration-300">
         <button onClick={() => setView('landing')} className="mb-6 text-slate-500 flex items-center gap-1 hover:text-slate-800"><ArrowRight className="rotate-180" size={16}/> กลับหน้าหลัก</button>
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
           <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-6 text-white text-center"><div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 backdrop-blur-sm"><User size={32} /></div><h2 className="text-xl font-bold">เข้าสู่ระบบนิสิต</h2><p className="text-amber-100 text-sm">Peer Evaluation System</p></div>
-          <div className="p-8 space-y-5">
-            <div><label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Layers size={16} className="text-amber-500"/> 1. เลือกโปรเจกต์</label><select className="w-full p-3 border rounded-lg bg-slate-50 outline-none focus:ring-2 focus:ring-amber-400 transition" value={loginProject} onChange={e => { setLoginProject(e.target.value); setLoginGroup(''); setLoginMemberLabel(''); setLoginMemberId(''); }}><option value="">-- เลือกโปรเจกต์ --</option>{projectList.map((p, i) => <option key={i} value={p}>{p}</option>)}</select></div>
-            {isClosed && (<div className="bg-red-50 border border-red-200 p-3 rounded-lg flex items-center gap-2 text-red-600 text-sm"><AlertTriangle size={18}/> โปรเจกต์นี้ปิดรับการประเมินแล้ว</div>)}
-            <div className={`transition-all duration-300 ${loginProject && !isClosed ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}><label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Users size={16} className="text-amber-500"/> 2. เลือกกลุ่มโครงงาน</label><select className="w-full p-3 border rounded-lg bg-slate-50 outline-none focus:ring-2 focus:ring-amber-400 transition" value={loginGroup} onChange={e => { setLoginGroup(e.target.value); setLoginMemberLabel(''); setLoginMemberId(''); }}><option value="">-- เลือกกลุ่ม --</option>{projectGroups.length > 0 ? (projectGroups.map((g, i) => <option key={i} value={g.name}>{g.name}</option>)) : (<option disabled>ไม่มีข้อมูลกลุ่มในโปรเจกต์นี้</option>)}</select></div>
-            <div className={`transition-all duration-300 ${loginGroup && !isClosed ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}><label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><User size={16} className="text-amber-500"/> 3. เลือกชื่อของคุณ</label><select className="w-full p-3 border rounded-lg bg-slate-50 outline-none focus:ring-2 focus:ring-amber-400 transition" value={loginMemberLabel} onChange={e => { const member = selectedGroupObj?.membersArray.find(m => m.label === e.target.value); setLoginMemberLabel(member?.label || ''); setLoginMemberId(member?.id || ''); setStudentAuthInput(''); }}><option value="">-- เลือกชื่อผู้ประเมิน --</option>{selectedGroupObj?.membersArray.map((m, i) => <option key={i} value={m.label}>{m.label}</option>)}</select></div>
-            {loginMemberId && !isClosed && (<div className="animate-in fade-in slide-in-from-top-2"><label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Key size={16} className="text-amber-500"/> 4. ยืนยันรหัสนิสิต (Password)</label><div className="relative"><Key size={18} className="absolute left-3 top-3.5 text-slate-400"/><input type="text" className="w-full pl-10 p-3 border rounded-lg bg-white outline-none focus:ring-2 focus:ring-amber-400 font-mono tracking-widest transition" placeholder="Enter ID" value={studentAuthInput} onChange={e => setStudentAuthInput(e.target.value)}/></div></div>)}
-            <button onClick={handleStudentLogin} disabled={!loginProject || !loginGroup || !loginMemberLabel || isClosed} className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold shadow-lg shadow-slate-300 hover:bg-slate-900 disabled:opacity-50 transition transform active:scale-95">เข้าสู่ระบบ</button>
-          </div>
+          <form className="p-8 space-y-5" onSubmit={e => { e.preventDefault(); handleStudentLogin(); }}>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><User size={16} className="text-amber-500"/> รหัสนิสิต</label>
+              <div className="relative"><User size={18} className="absolute left-3 top-3.5 text-slate-400"/>
+                <input type="text" inputMode="numeric" autoComplete="username" className="w-full pl-10 p-3 border rounded-lg bg-slate-50 outline-none focus:ring-2 focus:ring-amber-400 font-mono tracking-widest transition" placeholder="เช่น 660123" value={studentIdInput} onChange={e => setStudentIdInput(e.target.value)}/>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Key size={16} className="text-amber-500"/> รหัสผ่าน</label>
+              <div className="relative"><Key size={18} className="absolute left-3 top-3.5 text-slate-400"/>
+                <input type="password" autoComplete="current-password" className="w-full pl-10 p-3 border rounded-lg bg-white outline-none focus:ring-2 focus:ring-amber-400 transition" placeholder="••••••••" value={studentPasswordInput} onChange={e => setStudentPasswordInput(e.target.value)}/>
+              </div>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg text-xs leading-relaxed">
+              เข้าใช้ครั้งแรก: รหัสผ่านคือ <span className="font-bold font-mono">รหัสนิสิตของคุณ</span> ระบบจะให้ตั้งรหัสใหม่ทันที<br/>
+              ลืมรหัสผ่าน: แจ้งอาจารย์ผู้สอนเพื่อรีเซ็ตให้
+            </div>
+            <button type="submit" disabled={loading || !studentIdInput.trim() || !studentPasswordInput} className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold shadow-lg shadow-slate-300 hover:bg-slate-900 disabled:opacity-50 transition transform active:scale-95 flex justify-center items-center gap-2">
+              {loading && <Loader2 size={18} className="animate-spin"/>} เข้าสู่ระบบ
+            </button>
+          </form>
         </div>
       </div>
     );
   };
 
+
   const renderStudentDashboard = () => {
-    if (!studentSession) return null;
+    // อยู่หลายโปรเจกต์ให้เลือกก่อน (ถ้ามีกลุ่มเดียว useEffect เลือกให้อัตโนมัติแล้ว)
+    if (!studentSession) {
+      return (
+        <div className="w-full max-w-md mx-auto py-10 px-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-3">
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Layers size={20} className="text-amber-500"/> เลือกโครงงาน</h2>
+            {importedGroups.length === 0 ? (
+              <p className="text-sm text-slate-500 py-4">ยังไม่พบกลุ่มของคุณในระบบ กรุณาติดต่ออาจารย์ผู้สอน</p>
+            ) : importedGroups.map((g, i) => (
+              <button key={i} onClick={() => setStudentSession({ project: g.project, groupName: g.name, memberId: '', memberLabel: g.myLabel ?? '' })} className="w-full text-left p-4 border border-slate-200 rounded-lg hover:border-amber-400 hover:bg-amber-50 transition">
+                <div className="font-bold text-slate-800">{g.project}</div>
+                <div className="text-sm text-slate-500">{g.name} · {g.myLabel}</div>
+              </button>
+            ))}
+            <button onClick={handleStudentLogout} className="w-full text-sm text-red-600 hover:bg-red-50 py-2 rounded transition">ออกจากระบบ</button>
+          </div>
+        </div>
+      );
+    }
     const groupObj = importedGroups.find(g => g.name === studentSession.groupName && g.project === studentSession.project);
     const peers = groupObj?.membersArray.filter(m => m.label !== studentSession.memberLabel) || [];
     const getStatus = (peerName: string) => peerEvaluations.some(e => e.project === studentSession.project && e.groupName === studentSession.groupName && e.evaluator === studentSession.memberLabel && e.target === peerName);
@@ -499,9 +726,10 @@ const App: React.FC = () => {
 
     return (
       <div className="w-full max-w-4xl mx-auto py-6 px-4">
-        <div className="flex justify-between items-center mb-6"><div><h1 className="text-xl font-bold text-slate-800">Dashboard</h1><span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">{studentSession.project}</span></div><button onClick={handleStudentLogout} className="text-sm text-red-600 font-medium hover:bg-red-50 px-3 py-1 rounded-full border border-transparent hover:border-red-100 transition">ออกจากระบบ</button></div>
+        <div className="flex justify-between items-center mb-6"><div><h1 className="text-xl font-bold text-slate-800">Dashboard</h1><span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">{studentSession.project}</span></div><div className="flex items-center gap-2"><button onClick={() => setShowChangePassword(true)} className="text-sm text-slate-600 font-medium hover:bg-slate-100 px-3 py-1 rounded-full border border-slate-200 transition flex items-center gap-1"><Key size={14}/> เปลี่ยนรหัสผ่าน</button><button onClick={handleStudentLogout} className="text-sm text-red-600 font-medium hover:bg-red-50 px-3 py-1 rounded-full border border-transparent hover:border-red-100 transition">ออกจากระบบ</button></div></div>
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6 flex flex-col sm:flex-row items-center justify-between gap-4"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 font-bold text-xl">{studentSession.memberLabel.charAt(0)}</div><div><p className="text-slate-500 text-xs uppercase tracking-wider">Welcome,</p><h2 className="text-lg font-bold text-slate-800">{studentSession.memberLabel}</h2><span className="text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-500">{studentSession.groupName}</span></div></div><div className="text-center sm:text-right"><p className="text-slate-400 text-xs">Progress</p><p className={`text-2xl font-bold ${isAllDone ? 'text-green-600' : 'text-slate-800'}`}>{evaluatedCount}/{totalPeers}</p></div></div>
         {studentSuccessMsg && (<div className="bg-green-100 border border-green-200 text-green-800 p-3 rounded-xl mb-6 flex items-center gap-2 text-sm font-medium animate-in slide-in-from-top-2"><CheckCircle size={18} className="text-green-600" /> {studentSuccessMsg}</div>)}
+        {!projectStatus[studentSession.project] && (<div className="bg-red-50 border border-red-200 p-3 rounded-xl mb-6 flex items-center gap-2 text-red-600 text-sm font-medium"><AlertTriangle size={18}/> โปรเจกต์นี้ปิดรับการประเมินแล้ว</div>)}
         <h3 className="text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider ml-1">เพื่อนในทีมที่ต้องประเมิน</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{peers.length === 0 ? (<div className="col-span-2 p-8 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">ไม่มีสมาชิกอื่นในกลุ่ม</div>) : (peers.map((peer, idx) => { const isDone = getStatus(peer.label); return (<button key={idx} disabled={isDone} onClick={() => startVote(peer.label)} className={`w-full p-4 rounded-xl border flex justify-between items-center transition-all text-left group ${isDone ? 'bg-slate-50 border-slate-200 opacity-60 cursor-default' : 'bg-white border-slate-200 hover:border-amber-400 hover:shadow-md cursor-pointer'}`}><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${isDone ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{isDone ? <Check size={16}/> : peer.label.charAt(0)}</div><span className={`font-medium ${isDone ? 'text-slate-500 line-through' : 'text-slate-800'}`}>{peer.label}</span></div><div>{isDone ? (<span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">เรียบร้อย</span>) : (<span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded group-hover:bg-amber-500 group-hover:text-white transition">ให้คะแนน</span>)}</div></button>); }))}</div>
         {isAllDone && (<div className="mt-8 bg-green-50 border border-green-200 rounded-xl p-6 text-center animate-in zoom-in-95"><div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3"><Trophy size={32} /></div><h3 className="text-lg font-bold text-green-800">ประเมินครบทุกคนแล้ว!</h3><button onClick={handleStudentLogout} className="bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700 transition">ออกจากระบบ</button></div>)}
@@ -540,7 +768,9 @@ const App: React.FC = () => {
                  <div><label className="text-xs font-bold text-slate-500 uppercase">Password</label><div className="relative"><Key size={16} className="absolute left-3 top-3 text-slate-400" /><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full pl-9 p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" placeholder="••••••••" /></div></div>
              </div>
              <button onClick={handleAuth} disabled={loading} className="w-full mt-6 py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-70 flex justify-center items-center gap-2">{loading ? <Loader2 className="animate-spin" size={18}/> : (authMode === 'login' ? 'Sign In' : 'Create Account')}</button>
-             <div className="mt-4 text-xs text-slate-500">{authMode === 'login' ? "Don't have an account? " : "Already have an account? "}<button onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="text-indigo-600 font-bold hover:underline">{authMode === 'login' ? 'Register' : 'Login'}</button></div>
+             {/* ปุ่มสมัครสมาชิกถูกถอดออก เพราะต้องปิด signup ใน Supabase เพื่อกันคนสมัครอีเมลสวมรอยเป็นนิสิต
+                 บัญชีอาจารย์สร้างจาก Supabase Dashboard แล้วเพิ่มลงตาราง teachers */}
+             <div className="mt-4 text-xs text-slate-400">บัญชีอาจารย์สร้างโดยผู้ดูแลระบบเท่านั้น</div>
              <button onClick={() => setShowLoginModal(false)} className="mt-4 text-xs text-slate-400 hover:text-slate-600">Cancel</button>
           </div>
         </div>
@@ -549,10 +779,20 @@ const App: React.FC = () => {
       {showImport && <ImportModal onClose={() => setShowImport(false)} />}
       {showProjectManager && <ProjectManagerModal onClose={() => setShowProjectManager(false)} />}
       {showCriteriaModal && <CriteriaManagerModal onClose={() => setShowCriteriaModal(false)} />}
+      {/* บังคับตั้งรหัสใหม่มาก่อน ปิดไม่ได้จนกว่าจะเปลี่ยน */}
+      {(mustChangePassword || showChangePassword) && (
+        <ChangePasswordModal
+          forced={mustChangePassword}
+          loading={loading}
+          onSubmit={handleChangeOwnPassword}
+          onClose={() => setShowChangePassword(false)}
+          onLogout={handleStudentLogout}
+        />
+      )}
 
       {view === 'landing' && (
         <div className="w-full flex flex-col items-center justify-center flex-grow py-12 px-4 space-y-8">
-          <div className="text-center space-y-2"><h1 className="text-4xl sm:text-5xl font-extrabold text-slate-800 tracking-tight">ระบบประเมิน Project รายวิชา AI สาขา SE (V.Demo)</h1><p className="text-slate-500 text-lg">กรุณาเลือกบทบาทผู้ประเมิน คุณคือใคร?</p></div>
+          <div className="text-center space-y-2"><h1 className="text-4xl sm:text-5xl font-extrabold text-slate-800 tracking-tight">ระบบประเมิน Project รายวิชา AI สาขา S</h1><p className="text-slate-500 text-lg">กรุณาเลือกบทบาทผู้ประเมิน คุณคือใคร?</p></div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
             <button onClick={() => setView('student-login')} className="group bg-white p-8 rounded-2xl shadow-sm hover:shadow-xl border-2 border-transparent hover:border-amber-400 text-left transition-all"><div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mb-4 text-amber-600 group-hover:scale-110 transition"><User size={24} /></div><h2 className="text-2xl font-bold text-slate-800 mb-2">สำหรับนิสิต</h2><p className="text-slate-500 text-sm">เข้าสู่ระบบเพื่อประเมินเพื่อนร่วมทีม (Peer Evaluation)</p></button>
             <button onClick={() => setShowLoginModal(true)} className="group bg-white p-8 rounded-2xl shadow-sm hover:shadow-xl border-2 border-transparent hover:border-indigo-500 text-left transition-all"><div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mb-4 text-indigo-600 group-hover:scale-110 transition"><Lock size={24} /></div><h2 className="text-2xl font-bold text-slate-800 mb-2">สำหรับอาจารย์</h2><p className="text-slate-500 text-sm">ประเมินโครงงาน จัดการกลุ่ม และสรุปคะแนนรวมทั้งหมด</p></button>
@@ -569,7 +809,7 @@ const App: React.FC = () => {
            <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-indigo-600 flex flex-col xl:flex-row justify-between items-center gap-4">
              <div><h1 className="text-xl font-bold text-slate-800">Teacher Dashboard</h1><p className="text-xs text-slate-500">Manage scores for multiple projects</p></div>
              <div className="flex flex-wrap items-center justify-center gap-3"><div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200"><span className="text-xs font-bold text-slate-500 uppercase px-2">Project:</span><select value={teacherProject} onChange={(e) => { setTeacherProject(e.target.value); setCurrentGroup(null); }} className="bg-white border border-slate-300 text-slate-700 text-sm rounded-md p-2 outline-none font-semibold cursor-pointer">{projectList.map((p, i) => <option key={i} value={p}>{p}</option>)}</select><button onClick={() => setShowProjectManager(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition"><Settings size={18} /></button></div><button onClick={toggleProjectStatus} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold border transition-all ${projectStatus[teacherProject] ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'}`}><Power size={16}/> {projectStatus[teacherProject] ? 'เปิดรับ (Open)' : 'ปิดรับ (Closed)'}</button></div>
-             <div className="flex flex-wrap items-center justify-center gap-3"><button onClick={() => setShowImport(true)} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-2 rounded hover:bg-blue-100 transition"><Upload size={16}/> นำเข้ากลุ่ม</button><button onClick={handleExportExcel} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-2 rounded hover:bg-green-100 transition"><FileSpreadsheet size={16}/> Export Excel</button><button onClick={handleSignOut} className="flex items-center gap-1 text-sm bg-red-50 text-red-700 px-3 py-2 rounded hover:bg-red-100 transition"><LogOut size={16}/> ออกจากระบบ</button></div>
+             <div className="flex flex-wrap items-center justify-center gap-3"><button onClick={() => setShowImport(true)} className="flex items-center gap-1 text-sm bg-blue-50 text-blue-700 px-3 py-2 rounded hover:bg-blue-100 transition"><Upload size={16}/> นำเข้ากลุ่ม</button><button onClick={handleProvisionStudents} className="flex items-center gap-1 text-sm bg-amber-50 text-amber-700 px-3 py-2 rounded hover:bg-amber-100 transition"><Users size={16}/> สร้างบัญชีนิสิต</button><button onClick={handleResetStudentPassword} className="flex items-center gap-1 text-sm bg-slate-100 text-slate-700 px-3 py-2 rounded hover:bg-slate-200 transition"><Key size={16}/> รีเซ็ตรหัสนิสิต</button><button onClick={handleExportExcel} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-2 rounded hover:bg-green-100 transition"><FileSpreadsheet size={16}/> Export Excel</button><button onClick={handleSignOut} className="flex items-center gap-1 text-sm bg-red-50 text-red-700 px-3 py-2 rounded hover:bg-red-100 transition"><LogOut size={16}/> ออกจากระบบ</button></div>
            </div>
            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
              <div className="lg:col-span-8 space-y-6">
