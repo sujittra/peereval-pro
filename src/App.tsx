@@ -160,6 +160,18 @@ const ChangePasswordModal = ({ forced, loading, onSubmit, onClose, onLogout }: {
   );
 };
 
+// แปลง error ดิบจาก Postgres/PostgREST เป็นคำแนะนำว่าต้องทำอะไร
+// เกือบทุกกรณีเกิดจากยังรันไฟล์ SQL ในโฟลเดอร์ supabase/ ไม่ครบ
+const explainDbError = (msg: string) => {
+  if (/ON CONFLICT specification/i.test(msg))
+    return 'ตาราง groups ยังไม่มี unique constraint ที่การนำเข้าต้องใช้\n\nรัน supabase/groups-unique.sql ขั้นที่ 3 ใน Supabase SQL Editor ก่อน แล้วลองใหม่';
+  if (/Could not find the function|schema cache/i.test(msg))
+    return 'ยังไม่ได้สร้างฟังก์ชันที่ต้องใช้ในฐานข้อมูล\n\nรันไฟล์ SQL ในโฟลเดอร์ supabase/ ให้ครบก่อน\n\n(' + msg + ')';
+  if (/column .* does not exist/i.test(msg))
+    return 'โครงสร้างฐานข้อมูลยังไม่ตรงกับเวอร์ชันของแอป\n\nรันไฟล์ SQL ในโฟลเดอร์ supabase/ ให้ครบก่อน\n\n(' + msg + ')';
+  return msg;
+};
+
 // =========================================================
 //  การอ่านรายชื่อนำเข้า
 // =========================================================
@@ -388,7 +400,7 @@ const GroupEditor = ({ group, project, onChanged }: { group: Group; project: str
       p_project: project, p_group_id: group.id, p_new_name: name.trim(), p_members: cleaned,
     });
     setBusy(false);
-    if (error) return alert('บันทึกไม่สำเร็จ: ' + error.message);
+    if (error) return alert('บันทึกไม่สำเร็จ: ' + explainDbError(error.message));
     onChanged();
   };
 
@@ -397,7 +409,7 @@ const GroupEditor = ({ group, project, onChanged }: { group: Group; project: str
     setBusy(true);
     const { error } = await supabase.rpc('delete_group', { p_project: project, p_group_id: group.id });
     setBusy(false);
-    if (error) return alert('ลบไม่สำเร็จ: ' + error.message);
+    if (error) return alert('ลบไม่สำเร็จ: ' + explainDbError(error.message));
     onChanged();
   };
 
@@ -945,7 +957,7 @@ const App: React.FC = () => {
       { onConflict: 'project_name,voter_id' },
     );
     setLoading(false);
-    if (error) return alert('โหวตไม่สำเร็จ: ' + error.message);
+    if (error) return alert('โหวตไม่สำเร็จ: ' + explainDbError(error.message));
     setMyVote(prev => ({ ...prev, [project]: groupName }));
     fetchData();
   };
@@ -1097,7 +1109,7 @@ const App: React.FC = () => {
       .update({ teacher_weight: w.teacher, peer_weight: w.peer })
       .eq('name', teacherProject);
     setLoading(false);
-    if (error) return alert('บันทึกสัดส่วนไม่สำเร็จ: ' + error.message);
+    if (error) return alert('บันทึกสัดส่วนไม่สำเร็จ: ' + explainDbError(error.message));
     setProjectWeights(prev => ({ ...prev, [teacherProject]: w }));
     setShowWeights(false);
     alert(`ตั้งสัดส่วนของ "${teacherProject}" เป็น อาจารย์ ${w.teacher}% + เพื่อน ${w.peer}% เรียบร้อย`);
@@ -1107,7 +1119,7 @@ const App: React.FC = () => {
     setLoading(true);
     const { error } = await supabase.rpc('save_student_criteria', { p_project: teacherProject, p_data: rows });
     setLoading(false);
-    if (error) return alert('บันทึกเกณฑ์ไม่สำเร็จ: ' + error.message);
+    if (error) return alert('บันทึกเกณฑ์ไม่สำเร็จ: ' + explainDbError(error.message));
     setAllStudentCriteria(prev => ({ ...prev, [teacherProject]: rows }));
     setShowStudentCriteria(false);
     alert('บันทึกเกณฑ์ประเมินเพื่อนเรียบร้อย');
@@ -1203,7 +1215,7 @@ const App: React.FC = () => {
     const handleReuse = async () => { if (!sourceProject) return alert('กรุณาเลือกโปรเจกต์ต้นทาง'); const sourceGroups = importedGroups.filter(g => g.project === sourceProject); if (sourceGroups.length === 0) return alert('ไม่พบข้อมูลกลุ่มในโปรเจกต์ที่เลือก'); 
         const newGroupsPayload = sourceGroups.map(g => ({ project_name: teacherProject, name: g.name, members: g.membersArray }));
         const { error } = await supabase.from('groups').upsert(newGroupsPayload, { onConflict: 'project_name,name' });
-        if(!error) { onClose(); fetchData(); alert(`คัดลอกกลุ่มเรียบร้อย`); } else { alert(error.message); }
+        if(!error) { onClose(); fetchData(); alert(`คัดลอกกลุ่มเรียบร้อย`); } else { alert('คัดลอกไม่สำเร็จ: ' + explainDbError(error.message)); }
     };
     // อ่านไฟล์ .xlsx / .csv ด้วย SheetJS ตัวเดียวกับที่ใช้ตอน export
     // แล้วเทข้อมูลลงกล่องข้อความ ให้อาจารย์ตรวจและแก้ก่อนกดยืนยันได้
@@ -1248,7 +1260,7 @@ const App: React.FC = () => {
         const totalMembers = parsed.reduce((sum, g) => sum + g.members.length, 0);
         // upsert: นำเข้าชื่อกลุ่มเดิมซ้ำ = ทับของเดิม ไม่สร้างกลุ่มซ้ำ (ต้องมี unique constraint ที่ groups-unique.sql)
         const { error } = await supabase.from('groups').upsert(parsed, { onConflict: 'project_name,name' });
-        if (error) return alert(error.message);
+        if (error) return alert('นำเข้าไม่สำเร็จ: ' + explainDbError(error.message));
         onClose(); fetchData(); alert(`นำเข้าสำเร็จ ${parsed.length} กลุ่ม รวม ${totalMembers} คน`);
     };
     return (<div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6"><h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Upload size={20} className="text-blue-600"/> จัดการรายชื่อกลุ่ม</h3><div className="bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded mb-4 text-sm flex justify-between items-center"><span><span className="font-bold">Project ปัจจุบัน:</span> {teacherProject}</span></div><div className="flex gap-2 mb-4 border-b border-slate-200"><button onClick={() => setMode('new')} className={`pb-2 px-4 text-sm font-bold transition-all ${mode === 'new' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><Plus size={14} className="inline mr-1"/> นำเข้าใหม่ (Excel)</button><button onClick={() => availableProjects.length > 0 && setMode('reuse')} disabled={availableProjects.length === 0} className={`pb-2 px-4 text-sm font-bold transition-all ${mode === 'reuse' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'} ${availableProjects.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}><Copy size={14} className="inline mr-1"/> ใช้กลุ่มเดิม (Reuse)</button><button onClick={() => setMode('edit')} className={`pb-2 px-4 text-sm font-bold transition-all ${mode === 'edit' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><Pencil size={14} className="inline mr-1"/> แก้ไข/ลบ</button></div>{mode === 'edit' ? (<div className="animate-in fade-in space-y-3 max-h-[60vh] overflow-y-auto pr-1">{getGroupsByProject(teacherProject).length === 0 ? (<p className="text-sm text-slate-400 py-8 text-center">ยังไม่มีกลุ่มในโปรเจกต์นี้ นำเข้ารายชื่อก่อน</p>) : getGroupsByProject(teacherProject).map(g => (<GroupEditor key={g.id} group={g} project={teacherProject} onChanged={() => { fetchData(); }} />))}</div>) : mode === 'new' ? (<div className="animate-in fade-in"><div className="text-sm text-slate-600 mb-1">เลือกไฟล์ หรือพิมพ์/วางข้อมูลเองก็ได้</div>
@@ -1504,6 +1516,36 @@ const App: React.FC = () => {
            </div>
            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
              <div className="lg:col-span-8 space-y-6">
+               {/* เดิมเกณฑ์จะโผล่ต่อเมื่อเลือกกลุ่มแล้วเท่านั้น ย้ายมาแสดงตลอดเพื่อให้ตรวจก่อนเริ่มประเมินได้ */}
+               <details open className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                 <summary className="flex justify-between items-start gap-3 cursor-pointer list-none">
+                   <div>
+                     <h3 className="font-bold text-slate-700 flex items-center gap-2"><FileText size={18} className="text-indigo-500"/> เกณฑ์ให้คะแนนของอาจารย์</h3>
+                     <p className="text-xs text-slate-500 mt-1">
+                       ใช้ร่วมกัน <span className="font-bold">ทุกกลุ่ม</span> ใน {teacherProject} · {(allProjectCriteria[teacherProject] ?? []).length} ข้อ · เต็ม {teacherMaxOf(teacherProject)} คะแนน → ถ่วงเป็น {weightsOf(teacherProject).teacher}%
+                     </p>
+                   </div>
+                   <button onClick={e => { e.preventDefault(); e.stopPropagation(); setShowCriteriaModal(true); }}
+                     className="text-xs flex items-center gap-1 bg-white border border-indigo-200 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 shadow-sm transition shrink-0"><Pencil size={14}/> แก้ไขเกณฑ์</button>
+                 </summary>
+                 <div className="mt-4 space-y-3">
+                   {(allProjectCriteria[teacherProject] ?? []).length === 0 ? (
+                     <p className="text-sm text-slate-400 py-4 text-center">ยังไม่มีเกณฑ์ในโปรเจกต์นี้</p>
+                   ) : (allProjectCriteria[teacherProject] ?? []).map((c, i) => (
+                     <div key={i} className="border border-slate-100 rounded-lg p-3 bg-slate-50/60">
+                       <div className="font-bold text-sm text-slate-700 mb-2">{c.name}</div>
+                       <div className="flex flex-wrap gap-2">
+                         {(c.options ?? []).map((o, j) => (
+                           <span key={j} className="text-xs bg-white border border-slate-200 rounded-full px-2.5 py-1 text-slate-600">
+                             <span className="font-mono font-bold text-indigo-600">{o.score}</span> · {o.desc}
+                           </span>
+                         ))}
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+               </details>
+
                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 min-h-[500px]">
                   <div className="mb-6 pb-6 border-b border-slate-100">
                     <label className="block text-sm font-bold text-slate-700 mb-2">เลือกกลุ่ม ({teacherProject})</label>
